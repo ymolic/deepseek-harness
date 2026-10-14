@@ -1560,6 +1560,32 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'mobileController',
+    summary: 'Only the authenticated desktop receives these Remote controls.',
+    description: 'Only the authenticated desktop receives these Remote controls. Phone execution never dispatches Remote methods.',
+    methods: [
+      {
+        signature: '@Remote status(): MobileDesktopState',
+        description: 'Read the current authorization without exposing private pairing material.',
+        parameters: [],
+        returns: 'authorization state without credentials or QR material.',
+      },
+      {
+        signature: '@Remote start(request: MobileStartRequest): Promise<MobileStartResult>',
+        description: 'Explicitly authorize one existing, ordinary, unarchived Session.',
+        parameters: [{ name: 'request', description: 'desktop selection and acknowledgement that messages may use existing tools.' }],
+        returns: 'a short-lived QR URL; keep it only in the desktop\'s transient view state.',
+        throws: ['when disabled, already starting, revoked state is uncertain, or the selected Session cannot be used.'],
+      },
+      {
+        signature: '@Remote async stop(): Promise<MobileDesktopState>',
+        description: 'Stop local admission synchronously, then revoke the relay room.',
+        parameters: [],
+        returns: 'state distinguishing confirmed server revocation from an unknown network outcome.',
+      },
+    ],
+  },
+  {
     key: 'officeToPdf',
     summary: 'A provider lifetime owns all converters, queued calls, and temporary files.',
     description: 'A provider lifetime owns all converters, queued calls, and temporary files.',
@@ -6000,6 +6026,18 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'MessageSourceMap',
     declaration: 'export interface MessageSourceMap {\n    user: {\n        kind: \'user\';\n    };\n    model: ModelMessageSource;\n    tool: ToolMessageSource;\n    \'system-prompt\': SystemPromptMessageSource;\n}',
+  },
+  {
+    name: 'MobileDesktopState',
+    declaration: 'export interface MobileDesktopState {\n    readonly phase: \'disabled\' | \'stopped\' | \'starting\' | \'waiting\' | \'paired\' | \'reconnecting\' | \'expired\' | \'failed\';\n    readonly sessionId: SessionId | null;\n    readonly title: string;\n    readonly expiresAt: number | null;\n    readonly ticketExpiresAt: number | null;\n    readonly relayRevoked: boolean;\n}',
+  },
+  {
+    name: 'MobileStartRequest',
+    declaration: 'export interface MobileStartRequest {\n    readonly sessionId: SessionId;\n    readonly acknowledgeTools: true;\n}',
+  },
+  {
+    name: 'MobileStartResult',
+    declaration: 'export interface MobileStartResult {\n    readonly pairingUrl: string;\n    readonly state: MobileDesktopState;\n}',
   },
   {
     name: 'ModDefinition',

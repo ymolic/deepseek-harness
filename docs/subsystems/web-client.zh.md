@@ -27,6 +27,10 @@ Web boot kernel 创建模块系统、预取 `immediately` entry、挂载 vendore
 
 ## Remote 通信
 
+[手机远控](../../packages/api/mobile-controller/README.zh.md)只通过已认证的桌面 Remote 调用管理授权界面。手机通道在绑定单个 Agent 的受限 Host 执行器终止，不转发操作员的通用 Remote 命名空间。[桌面菜单](../../packages/client/ui-mobile-remote/README.zh.md)负责临时二维码展示，并区分关闭弹窗与停止授权。
+
+`MobileStartRequest` 携带选定的 `sessionId` 和对已有工具权限的明确确认。`MobileStartResult` 返回临时配对材料及 `MobileDesktopState`；只有后者适合常规状态读取。该状态报告授权阶段、选定 Session、期限及中继是否确认撤销。[类型声明](../../packages/api/mobile-controller/src/types.ts)维护这些字段。
+
 Host 业务 service 使用 Typert Remote decorator 标记可调用 method。Host generation 产出严格 descriptor、runtime codec、declaration merge 与 source map。Client 侧 `api-remotes` assembly 选择这些生成贡献，并把具体 method 挂到 `ctx.remote.<namespace>` 与 Session scope 的 `agentCtx.remote.<namespace>`。功能包依赖生成的 service face，而不依赖 Gateway 实现或 Host 包的运行时 entry。
 
 Connection 拥有请求 URL 解析、request correlation、`/api` carrier、trust check、精确 Fetch 路由与 connection generation。API Gateway 拥有 Remote dispatch、取消、logical stream 与选定 Host event 的转发。Controller 操作应进入生成的 Remote method 或显式 Remote stream；功能自有的下载则注册精确 Fetch 路由。[API Gateway 参考](../api-gateway.zh.md)定义 generation 与调用，[Connection README](../../packages/client/connection/README.zh.md)定义物理 carrier 与信任策略。
@@ -98,3 +102,42 @@ Web 和桌面端共享[代码工作工具偏好](../../packages/client/ui-settin
 - [API Gateway](../api-gateway.zh.md)：Host method、生成的 Remote contribution、stream 与 forwarded event。
 - [Web Client Slots](slots.zh.md)：component、hook、store、injection 与 placement。
 - [Conversation](conversation.zh.md)：持久 event correlation、target snapshot，以及 Chat 或 Trajectory view contribution。
+
+<!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
+
+<a id="cordis-surface"></a>
+
+## Cordis API
+
+Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — the language sides differ only in locale-specific paired document paths. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.zh.md#dispatch-modes), and the framework-inherited `ctx` API lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
+
+<a id="ctxmobilecontroller--mobilecontroller"></a>
+
+### `ctx.mobileController` — `MobileController`
+
+Only the authenticated desktop receives these Remote controls. Phone execution never dispatches Remote methods.
+
+```ts cordis-catalog
+/**
+ * Read the current authorization without exposing private pairing material.
+ * @returns authorization state without credentials or QR material.
+ */
+@Remote status(): MobileDesktopState
+
+/**
+ * Explicitly authorize one existing, ordinary, unarchived Session.
+ * @param request - desktop selection and acknowledgement that messages may use existing tools.
+ * @returns a short-lived QR URL; keep it only in the desktop's transient view state.
+ * @throws when disabled, already starting, revoked state is uncertain, or the selected Session cannot be used.
+ */
+@Remote start(request: MobileStartRequest): Promise<MobileStartResult>
+
+/**
+ * Stop local admission synchronously, then revoke the relay room.
+ * @returns state distinguishing confirmed server revocation from an unknown network outcome.
+ */
+@Remote async stop(): Promise<MobileDesktopState>
+```
+
+Source: [`packages/api/mobile-controller/src/index.ts`](../../packages/api/mobile-controller/src/index.ts)
+<!-- END GENERATED cordis-surface -->

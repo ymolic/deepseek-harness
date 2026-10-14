@@ -1,0 +1,37 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write packages/api/mobile-controller/README.md
+/:
+  en: 53f422a1ef36e8d8
+  zh: ecc457cf95061fc9
+/deepseek-ai-dsh-api-mobile-controller:
+  en: 43b8552039ba1065
+  zh: 260fc7607e6d1e6a
+/deepseek-ai-dsh-api-mobile-controller/summary:
+  en: c26f54ef6e6ad83f
+  zh: 9f13d382eab5256b
+/deepseek-ai-dsh-api-mobile-controller/table-of-contents:
+  en: 23386452a66b2fbd
+  zh: 4cf93c4bf17b3da2
+/deepseek-ai-dsh-api-mobile-controller/use-this-package:
+  en: 8fade5fd5a9a0a43
+  zh: 651a30ec89b08a54
+/deepseek-ai-dsh-api-mobile-controller/understand-the-implementation:
+  en: 1ac081e1efd55ff2
+  zh: 2f9d4d37754c4e06
+/deepseek-ai-dsh-api-mobile-controller/further-exploration:
+  en: 31f3386a541ccd4c
+  zh: f1b5dc6e1f04dbda
+/deepseek-ai-dsh-api-mobile-controller/model-experience:
+  en: 9c8d030cf587eede
+  zh: 6661c5f2c8785f85
+/deepseek-ai-dsh-api-mobile-controller/model-experience/kv-cache-effect:
+  en: d5485dbc7affa23c
+  zh: 96b7de8587de85a9
+/deepseek-ai-dsh-api-mobile-controller/known-limitations-and-deferred-work:
+  en: 896eb2b06d77b303
+  zh: eebb25f01a501fe4
+/deepseek-ai-dsh-api-mobile-controller/known-limitations-and-deferred-work/dev-note:
+  en: 9613ea694039d473
+  zh: 3534b4435e755c67

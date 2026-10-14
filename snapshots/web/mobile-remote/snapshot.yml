@@ -1,0 +1,9 @@
+version: 1
+scenario: mobile-remote
+profile: web
+composition: web-default
+recording: authored
+header:
+  class: web-default
+session:
+  source: ../deepseek-messages-chat/session.v4.jsonl

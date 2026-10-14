@@ -30,6 +30,7 @@ kind: "package-group"
 | [`gateway/`](gateway/README.zh.md) | 承载类型化一元调用、带 Client 上行的多路复用流，以及转发的 Host 事件。 | `ctx.typertGateway` / `ctx.remote` |
 | [`job-controller/`](job-controller/README.zh.md) | 把一个后台任务的观测 record 流式送到 Client。 | `ctx.jobController` / `ctx.remote.job` |
 | [`session-controller/`](session-controller/README.zh.md) | 拥有会话命令、历史记录流、实时控制状态与 Agent/Session 身份策略。 | `ctx.sessionController` / `ctx.remote.session` |
+| [`mobile-controller/`](mobile-controller/README.zh.md) | 授权手机通过出站中继连接访问单个 Session 的加密文本。 | `ctx.mobileController` / `ctx.remote.mobile` |
 | [`settings-controller/`](settings-controller/README.zh.md) | 拥有 settings 域各 seam 之上的配置界面读写。 | `ctx.settingsController`、`ctx.credentialsController` / `ctx.remote.settings`、`ctx.remote.credentials` |
 | [`workspace-controller/`](workspace-controller/README.zh.md) | 拥有 Workspace 变更与完整 Client Workspace 投影。 | `ctx.workspaceController` / `ctx.remote.workspace` |
 | [`terminal-controller/`](terminal-controller/README.zh.md) | Session 拥有的交互式 shell、屏幕恢复和浏览器终端控制。 | `ctx.terminalController` / `ctx.remote.terminal` |

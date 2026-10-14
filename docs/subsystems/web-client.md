@@ -27,6 +27,10 @@ The Web boot kernel creates the module system, prefetches `immediately` entries,
 
 ## Remote communication
 
+[Phone control](../../packages/api/mobile-controller/README.md) uses authenticated desktop Remote calls only for authorization UI. Its phone channel terminates in a restricted Host executor bound to one Agent; it never forwards the operator's generic Remote namespace. [The desktop menu](../../packages/client/ui-mobile-remote/README.md) owns transient QR presentation and distinguishes closing the dialog from stopping authorization.
+
+`MobileStartRequest` carries the selected `sessionId` and an affirmative tool-permission acknowledgement. `MobileStartResult` returns transient pairing material with `MobileDesktopState`; only the latter is safe for ordinary status reads. That state reports the authorization phase, selected Session, deadlines, and whether the relay confirmed revocation. The [type declarations](../../packages/api/mobile-controller/src/types.ts) own these fields.
+
 Host business services annotate callable methods with Typert Remote decorators. Host generation emits strict descriptors, runtime codecs, declaration merges, and source maps. The Client-side `api-remotes` assembly selects those generated contributions and mounts concrete methods under `ctx.remote.<namespace>` and Session-scoped `agentCtx.remote.<namespace>`. Feature packages depend on the generated service face, not the Gateway implementation or a Host package's runtime entry.
 
 The Connection owns request URL resolution, correlation, the `/api` carrier, trust checks, exact Fetch routes, and connection generations. API Gateway owns Remote dispatch, cancellation, logical streams, and selected Host event forwarding. Controller operations belong on generated Remote methods or explicit Remote streams; feature-owned downloads register exact Fetch routes. The [API Gateway reference](../api-gateway.md) defines generation and invocation, while the [Connection README](../../packages/client/connection/README.md) defines the physical carrier and trust policy.
@@ -98,3 +102,42 @@ Use the four detailed references according to the extension being added:
 - [API Gateway](../api-gateway.md) for Host methods, generated Remote contributions, streams, and forwarded events.
 - [Web Client Slots](slots.md) for components, hooks, stores, injection, and placement.
 - [Conversation](conversation.md) for durable event correlation, target snapshots, and Chat or Trajectory view contributions.
+
+<!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
+
+<a id="cordis-surface"></a>
+
+## Cordis API
+
+Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — the language sides differ only in locale-specific paired document paths. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.md#dispatch-modes), and the framework-inherited `ctx` API lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
+
+<a id="ctxmobilecontroller--mobilecontroller"></a>
+
+### `ctx.mobileController` — `MobileController`
+
+Only the authenticated desktop receives these Remote controls. Phone execution never dispatches Remote methods.
+
+```ts cordis-catalog
+/**
+ * Read the current authorization without exposing private pairing material.
+ * @returns authorization state without credentials or QR material.
+ */
+@Remote status(): MobileDesktopState
+
+/**
+ * Explicitly authorize one existing, ordinary, unarchived Session.
+ * @param request - desktop selection and acknowledgement that messages may use existing tools.
+ * @returns a short-lived QR URL; keep it only in the desktop's transient view state.
+ * @throws when disabled, already starting, revoked state is uncertain, or the selected Session cannot be used.
+ */
+@Remote start(request: MobileStartRequest): Promise<MobileStartResult>
+
+/**
+ * Stop local admission synchronously, then revoke the relay room.
+ * @returns state distinguishing confirmed server revocation from an unknown network outcome.
+ */
+@Remote async stop(): Promise<MobileDesktopState>
+```
+
+Source: [`packages/api/mobile-controller/src/index.ts`](../../packages/api/mobile-controller/src/index.ts)
+<!-- END GENERATED cordis-surface -->

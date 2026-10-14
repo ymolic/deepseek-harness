@@ -34,6 +34,10 @@ export type { AccountSnapshot } from './AccountSection.tsx'
 export type { AccountKey } from './locales.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
+  interface SlotMap {
+    /** Contributed More menu rows; each uses MenuItemButton and dismisses before opening its action. */
+    'settings.launcher.actions': { kind: 'list'; scope: 'root'; owner: { readonly onDismiss: () => void } }
+  }
   interface LocaleNamespaceMap { 'settings.account': AccountKey }
 }
 
@@ -284,6 +288,7 @@ export function apply(ctx: Context): void {
   }
   ctx.slots.inject('settings.launcher', () => ctx.slots.register({
     name: 'settings.launcher', locale: 'settings.account', inject: () => operations,
+    children: { 'settings.launcher.actions': { kind: 'list', scope: 'root' } },
   }, AccountMenu))
   ctx.slots.inject('settings.section', () => {
     let unregister: (() => void) | undefined

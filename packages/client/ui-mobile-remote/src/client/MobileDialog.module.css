@@ -1,0 +1,8 @@
+.dialog { width: min(480px, calc(100vw - 32px)); max-height: calc(100dvh - var(--dsh-frame-top-clearance, 0px) - 32px); overflow-y: auto; }
+.body { display: flex; flex-direction: column; gap: 14px; font-size: 13px; line-height: 1.65; color: var(--dsw-alias-label-secondary); }
+.body p { margin: 0; }
+.body .status, .body .session { color: var(--dsw-alias-label-primary); font-weight: 500; }
+.path { overflow-wrap: anywhere; }
+.qr { display: flex; flex-direction: column; align-items: center; gap: 12px; }
+.qr img { max-width: 100%; height: auto; border-radius: var(--dsw-radius-sm); }
+.actions { display: flex; justify-content: flex-end; gap: 8px; width: 100%; }

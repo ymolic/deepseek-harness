@@ -30,6 +30,7 @@ The packages below provide the Remote layer; the package READMEs own the exhaust
 | [`gateway/`](gateway/README.md) | Carries typed unary calls, multiplexed streams with their Client uplinks, and forwarded Host events. | `ctx.typertGateway` / `ctx.remote` |
 | [`job-controller/`](job-controller/README.md) | Streams one background job's observation record to the Client. | `ctx.jobController` / `ctx.remote.job` |
 | [`session-controller/`](session-controller/README.md) | Owns Session commands, history streams, live control state, and Agent/Session identity policy. | `ctx.sessionController` / `ctx.remote.session` |
+| [`mobile-controller/`](mobile-controller/README.md) | Authorizes one Session for encrypted phone text access through an outbound relay connection. | `ctx.mobileController` / `ctx.remote.mobile` |
 | [`settings-controller/`](settings-controller/README.md) | Owns the configuration-surface reads and writes over the settings-domain seams. | `ctx.settingsController`, `ctx.credentialsController` / `ctx.remote.settings`, `ctx.remote.credentials` |
 | [`workspace-controller/`](workspace-controller/README.md) | Owns Workspace mutations and the complete Client Workspace projection. | `ctx.workspaceController` / `ctx.remote.workspace` |
 | [`terminal-controller/`](terminal-controller/README.md) | Session-owned interactive shells, screen recovery and browser terminal control. | `ctx.terminalController` / `ctx.remote.terminal` |
