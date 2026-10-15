@@ -5,17 +5,32 @@ import { MobileCipher, MOBILE_WIRE, mobileRequest } from '../src/protocol.ts'
 const channel = 'browserchannel00000001'
 
 describe('mobile text protocol', () => {
-  it('admits only four exact commands without phone-supplied authority', () => {
+  it('admits authorized exact commands without phone-supplied authority', () => {
     const id = 'message000000001'
     for (const value of [
       { type: 'hello', channel }, { type: 'sync', channel },
       { type: 'receipt', channel, id }, { type: 'send', channel, id, text: '你好' },
+      { type: 'send', channel, id, text: '你好', sessionId: 'target-session-01' },
+      { type: 'workspace:list', channel },
+      { type: 'workspace:switch', channel, workspaceId: 'ws-1' },
+      { type: 'workspace:switch', channel, workspaceId: 'ws-1', sessionId: 'sess-1' },
+      { type: 'session:follow', channel, sessionId: 'sess-1' },
+      { type: 'session:cancel', channel, sessionId: 'sess-1' },
+      { type: 'approval:respond', channel, requestId: 'req-1', approved: true },
+      { type: 'approval:respond', channel, requestId: 'req-1', approved: false, rationale: '不安全' },
+      { type: 'question:answer', channel, questionId: 'q-1', answers: { choice: 'yes' } },
     ]) expect(mobileRequest(value)).toEqual(value)
     for (const value of [null, [], {}, { type: 'rpc', channel },
       { type: 'send', channel, id, text: ' ' }, { type: 'send', channel, id, text: 'x'.repeat(8001) },
-      { type: 'send', channel, id, text: 'ok', sessionId: 'another-session' },
       { type: 'send', channel, id, text: 'ok', cwd: '/untrusted' },
       { type: 'send', channel, id, text: 'ok', permissions: 'full' },
+      { type: 'workspace:switch', channel, workspaceId: '' },
+      { type: 'workspace:switch', channel, workspaceId: 'ws-1', exec: 'rm -rf' },
+      { type: 'session:follow', channel, sessionId: '' },
+      { type: 'session:follow', channel, sessionId: 's1', arbitrary: true },
+      { type: 'approval:respond', channel, requestId: 'r1', approved: 'yes' },
+      { type: 'approval:respond', channel, requestId: 'r1', approved: true, dangerousToken: 'secret' },
+      { type: 'question:answer', channel, questionId: '', answers: {} },
       { type: 'hello', channel: 'short' }, { type: 'receipt', channel, id: 'short' },
     ]) expect(mobileRequest(value)).toBeUndefined()
   })

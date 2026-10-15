@@ -37,7 +37,7 @@ The relay creates a room through `POST /desktop/rooms` using the provisioned des
 
 The QR fragment carries the room, ticket, and a random 32-byte secret. HKDF-SHA256 derives separate desktop, mobile, and browser-storage keys with the room as salt and `dsh-mobile/v1/{direction}` as info. AES-256-GCM uses random 12-byte IVs and authenticates room, direction, generation, and sequence. The relay forwards opaque envelopes; it still sees timing and sizes. The delivered phone JavaScript and both endpoints remain trusted. TLS and payload encryption do not protect against a malicious page distributor or a compromised endpoint.
 
-The encrypted protocol accepts only hello, sync, text send, and receipt lookup. Phone requests cannot select another Session, workspace path, permission, or Remote method. Generations and sequence checks reject gaps and replay. A grant retains up to 256 request receipts without eviction: duplicate IDs return the original admission outcome, and different text under an existing ID conflicts. An uncertain admission remains uncertain and is never executed again automatically. Full bounded text snapshots recover missed stream updates without a generic RPC replay buffer.
+The encrypted protocol supports hello, sync, text send, and receipt lookup, as well as mobile capability protocol extensions: workspace list/switch, rich conversation snapshots with formatted tool cards, cancellation, tool execution approval responses, and user question answers. All requests are validated against strict exact-key allowlists without generic RPC tunneling. Generations and sequence checks reject gaps and replay. A grant retains up to 256 request receipts without eviction: duplicate IDs return the original admission outcome, and different text under an existing ID conflicts. An uncertain admission remains uncertain and is never executed again automatically. Full bounded text and rich block snapshots recover missed stream updates without an unbounded RPC replay buffer.
 
 Stop, expiry, Session disposal, and plugin unload release streams, sockets, keys, receipts, and timers. Temporary transport failures permit three retries, with the budget restored only after thirty stable seconds. Existing approvals and questions remain desktop work. System prompts, reasoning, tool payloads, and injected user messages are excluded from the phone projection.
 
@@ -61,7 +61,7 @@ Phone text appends ordinary user messages; this controller adds no system prefix
 
 <a id="known-limitations-and-deferred-work"></a>
 
-- One Session per desktop grant, with text-only bounded excerpts. Attachments, terminals, arbitrary files, permission changes, and phone approvals are unavailable.
+- Mobile roaming is bounded to host workspaces and sessions; raw terminals, arbitrary host file traversal, and credential inspection remain strictly restricted.
 - Neither endpoint persists grants across Host restart. A disconnected phone can recover only while the original grant remains valid; network failure can delay confirmation of server revocation, but cannot restore local admission.
 
 <a id="dev-note"></a>

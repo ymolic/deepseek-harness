@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { SessionWireEvent } from '@deepseek-ai/dsh-api-session-controller/types'
+import { SessionId } from '@deepseek-ai/dsh-session/types'
 import { MobileProjection } from '../src/projection.ts'
 
 const event = (type: string, data: SessionWireEvent['data'], seq = 1): SessionWireEvent => ({ type, data, seq, time: 0 })
@@ -44,5 +45,28 @@ describe('phone Session excerpts', () => {
     const result = projection.snapshot('', false)
     expect(Buffer.byteLength(JSON.stringify(result.messages))).toBeLessThanOrEqual(1000)
     expect(result.truncated).toBe(true)
+  })
+
+  it('accumulates rich messages with tool calls, results and active approvals', () => {
+    const projection = new MobileProjection(16000)
+    projection.accept({ type: 'event', event: event('user/message', user('Run bash'), 1) })
+    projection.accept({ type: 'event', event: event('assistant/message', { message: { content: [{ type: 'text', text: 'Executing...' }] } }, 2) })
+    projection.accept({ type: 'event', event: event('tool/call', { callId: 'call-1', name: 'pwsh', args: { command: 'dir' } }, 3) })
+    projection.accept({ type: 'event', event: event('approval/asked', { id: 'appr-1', tool: 'pwsh', displayReason: 'Directory listing' }, 4) })
+    projection.accept({ type: 'event', event: event('tool/result', { name: 'pwsh', message: { toolCallId: 'call-1', content: [{ type: 'text', text: 'File list output' }] } }, 5) })
+
+    const rich = projection.richSnapshot(SessionId('session-1'), 'Test Session', true)
+    expect(rich.sessionId).toBe('session-1')
+    expect(rich.messages).toHaveLength(2)
+    expect(rich.messages[0]).toMatchObject({ id: '1', role: 'user', blocks: [{ type: 'text', text: 'Run bash' }] })
+    expect(rich.messages[1].role).toBe('assistant')
+    expect(rich.messages[1].blocks).toEqual([
+      { type: 'text', text: 'Executing...' },
+      { type: 'tool_call', callId: 'call-1', name: 'pwsh', args: '{"command":"dir"}' },
+      { type: 'tool_result', callId: 'call-1', name: 'pwsh', summary: 'File list output' },
+    ])
+    expect(projection.approvals()).toEqual([
+      { id: 'appr-1', toolName: 'pwsh', description: 'Directory listing', riskLevel: 'normal' },
+    ])
   })
 })

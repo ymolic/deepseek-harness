@@ -30,6 +30,9 @@
       "path": "../../interaction/user-questions"
     },
     {
+      "path": "../../interaction/user-approval"
+    },
+    {
       "path": "../session-controller/tsconfig.host.json"
     },
     {

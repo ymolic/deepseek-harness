@@ -6,18 +6,25 @@ import z from '@deepseek-ai/schemastery'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-api-session-controller'
 import type { SessionRequestId } from '@deepseek-ai/dsh-api-session-controller/types'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
+import type { ToolCallId } from '@deepseek-ai/dsh-llm'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-workspace'
 import type {} from '@deepseek-ai/dsh-session-projection'
 import type {} from '@deepseek-ai/dsh-session-title/types'
+import type { ApprovalRequest, ApprovalOutcome } from '@deepseek-ai/dsh-user-approval'
+import type { UserQuestionService, AskUserQuestionAnswer } from '@deepseek-ai/dsh-user-questions'
 import type {} from '@deepseek-ai/dsh-user-questions/types'
 import { Remote, RemoteError, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import { WebSocket } from 'ws'
 import { MobileCipher, mobileRequest, isRecord, MOBILE_WIRE } from './protocol.ts'
 import { MobileProjection } from './projection.ts'
 import { createRoom, revokeRoom, connectDevice, closeDevice, type RelayRoom } from './relay-client.ts'
-import type { MobileChannelId, MobileDesktopState, MobileReply, MobileRequestId, MobileReceiptStatus, MobileStartRequest, MobileStartResult } from './types.ts'
+import type {
+  MobileChannelId, MobileDesktopState, MobileReply, MobileRequestId, MobileReceiptStatus,
+  MobileStartRequest, MobileStartResult, MobileWorkspaceSummary, MobileSessionSummary,
+} from './types.ts'
 
 export type * from './types.ts'
 
@@ -44,7 +51,7 @@ export interface Config {
 }
 
 interface Grant {
-  readonly agent: Agent
+  agent: Agent
   readonly room: RelayRoom
   readonly cipher: MobileCipher
   readonly projection: MobileProjection
@@ -52,7 +59,9 @@ interface Grant {
   readonly expiresAt: number
   readonly deadline: number
   readonly receipts: Map<MobileRequestId, { digest: string; status: MobileReceiptStatus }>
+  readonly pendingApprovalAnswers: Map<string, (approved: boolean) => void>
   task: Promise<void>
+  observeAbort: AbortController | undefined
   socket: WebSocket | undefined
   channel: MobileChannelId | undefined
   revision: number
@@ -103,6 +112,25 @@ export class MobileController extends TypertRemoteService {
       expiresAt: null, ticketExpiresAt: null, relayRevoked: true }
     ctx.on('agent/status', ({ agent }) => { if (this.grant?.agent === agent) this.grant.dirty = true }, { global: true })
     ctx.on('agent/disposed', ({ agent }) => { if (this.grant?.agent === agent) void this.end('stopped') }, { global: true })
+
+    // Intercept approval requests for mobile human-in-the-loop decision arbitration.
+    ctx.on('approval/request', async (req: ApprovalRequest, next: () => Promise<ApprovalOutcome>) => {
+      const activeGrant = this.grant
+      if (!activeGrant || !this.valid(activeGrant) || req.agent !== activeGrant.agent) return next()
+      activeGrant.dirty = true
+      const id = req.callId ? String(req.callId) : req.toolName
+      return new Promise<ApprovalOutcome>((resolve) => {
+        const timer = setTimeout(() => {
+          activeGrant.pendingApprovalAnswers.delete(id)
+          resolve(next())
+        }, 60000)
+        activeGrant.pendingApprovalAnswers.set(id, (approved) => {
+          clearTimeout(timer)
+          resolve(approved ? 'allowed-once' : 'rejected')
+        })
+      })
+    })
+
     ctx.effect(() => async () => {
       this.disposed = true
       this.starting?.abort()
@@ -175,14 +203,18 @@ export class MobileController extends TypertRemoteService {
       const secret = randomBytes(32)
       const cipher = new MobileCipher(secret, room.roomId)
       const expiresAt = Date.now() + duration
-      const grant: Grant = { agent: found.agent, room, cipher, projection: new MobileProjection(this.config.historyBytes),
-        abort: new AbortController(), expiresAt, deadline: performance.now() + duration, receipts: new Map(), task: Promise.resolve(),
-        socket: undefined, channel: undefined, revision: 0, dirty: true, attempts: 0, retry: undefined, stable: undefined, tick: undefined }
+      const observeAbort = new AbortController()
+      const grant: Grant = {
+        agent: found.agent, room, cipher, projection: new MobileProjection(this.config.historyBytes),
+        abort: new AbortController(), expiresAt, deadline: performance.now() + duration, receipts: new Map(),
+        pendingApprovalAnswers: new Map(), task: Promise.resolve(), observeAbort,
+        socket: undefined, channel: undefined, revision: 0, dirty: true, attempts: 0, retry: undefined, stable: undefined, tick: undefined,
+      }
       this.grant = grant
       installed = true
       this.state = { phase: 'waiting', sessionId: request.sessionId, title: (selected.projections?.values.title ?? '').slice(0, 160),
         expiresAt, ticketExpiresAt: room.expiresAt, relayRevoked: false }
-      grant.task = this.observe(grant)
+      grant.task = this.observe(grant, observeAbort.signal)
       grant.tick = setInterval(() => {
         if (!this.valid(grant)) { void this.end('expired'); return }
         if (grant.dirty) this.flush(grant)
@@ -208,16 +240,69 @@ export class MobileController extends TypertRemoteService {
       && !this.ctx.workspaceRegistry.archivedSessionIds.includes(grant.agent.id)
   }
 
-  private async observe(grant: Grant): Promise<void> {
+  private async getWorkspaceSummaries(): Promise<MobileWorkspaceSummary[]> {
+    try {
+      const workspaces = this.ctx.workspaceRegistry?.list() ?? []
+      const { items: sessions } = await this.ctx.sessionController.list({}, new AbortController().signal)
+      const sessionMap = new Map(sessions.map(s => [s.sessionId, s]))
+      const summaries: MobileWorkspaceSummary[] = []
+      for (const ws of workspaces) {
+        const wsSessions: MobileSessionSummary[] = []
+        for (const sId of ws.sessionIds) {
+          const info = sessionMap.get(sId)
+          if (!info || this.ctx.workspaceRegistry.archivedSessionIds.includes(sId)) continue
+          const activeAgent = this.ctx.agents.get(sId)
+          const status = activeAgent ? (activeAgent.status === 'running' ? 'running' : 'idle') : 'idle'
+          wsSessions.push({
+            sessionId: sId,
+            title: (info.projections?.values.title ?? '').slice(0, 160) || 'Session',
+            updatedAt: new Date(info.updatedAt).getTime() || Date.now(),
+            status,
+          })
+        }
+        summaries.push({
+          workspaceId: ws.id,
+          name: ws.title || ws.path,
+          sessions: wsSessions,
+        })
+      }
+      return summaries
+    } catch {
+      return []
+    }
+  }
+
+  private async switchSession(grant: Grant, targetSessionId: SessionId): Promise<boolean> {
+    if (!this.valid(grant)) return false
+    if (this.ctx.workspaceRegistry.archivedSessionIds.includes(targetSessionId)) return false
+    const found = await this.ctx.sessionController.resolveAgent(targetSessionId)
+    if ('error' in found) return false
+    grant.observeAbort?.abort()
+    grant.agent = found.agent
+    const newAbort = new AbortController()
+    grant.observeAbort = newAbort
+    const titleVal = this.ctx.sessionProjections.snapshot(found.agent.session, ['title']).values.title
+    this.state = {
+      ...this.state,
+      sessionId: targetSessionId,
+      title: typeof titleVal === 'string' ? titleVal.slice(0, 160) : 'Session',
+    }
+    grant.task = this.observe(grant, newAbort.signal)
+    grant.dirty = true
+    this.flush(grant)
+    return true
+  }
+
+  private async observe(grant: Grant, signal: AbortSignal): Promise<void> {
     try {
       for await (const frame of this.ctx.sessionController.follow({ address: { kind: 'session', sessionId: grant.agent.id },
-        maxMessages: 40, assistantStream: true }, grant.abort.signal)) {
-        if (!this.valid(grant)) return
+        maxMessages: 40, assistantStream: true }, signal)) {
+        if (!this.valid(grant) || signal.aborted) return
         grant.projection.accept(frame)
         grant.dirty = true
       }
-      if (this.valid(grant)) void this.end('failed')
-    } catch (_error) { if (this.valid(grant)) void this.end('failed') }
+      if (this.valid(grant) && !signal.aborted) void this.end('failed')
+    } catch (_error) { if (this.valid(grant) && !signal.aborted) void this.end('failed') }
   }
 
   private connect(grant: Grant): Promise<void> {
@@ -231,7 +316,7 @@ export class MobileController extends TypertRemoteService {
         this.state = { ...this.state, phase: 'waiting' }
         resolve()
       })
-      socket.on('message', (bytes, binary) => {
+      socket.on('message', async (bytes, binary) => {
         if (!this.valid(grant) || grant.socket !== socket) return
         try {
           const data = Array.isArray(bytes) ? Buffer.concat(bytes) : Buffer.isBuffer(bytes) ? bytes : Buffer.from(bytes)
@@ -250,6 +335,49 @@ export class MobileController extends TypertRemoteService {
           if (request.type === 'hello') { grant.cipher.rotateSend(); grant.channel = request.channel; grant.dirty = true; this.flush(grant); return }
           if (request.channel !== grant.channel) throw new Error('retired mobile channel')
           if (request.type === 'sync') { grant.dirty = true; this.flush(grant); return }
+          if (request.type === 'workspace:list') {
+            const summaries = await this.getWorkspaceSummaries()
+            this.reply(grant, {
+              type: 'workspace:state',
+              channel: request.channel,
+              revision: ++grant.revision,
+              workspaces: summaries,
+              activeSessionId: grant.agent.id,
+            })
+            return
+          }
+          if (request.type === 'workspace:switch' || request.type === 'session:follow') {
+            const targetId = request.sessionId
+            if (targetId) {
+              await this.switchSession(grant, targetId)
+            }
+            return
+          }
+          if (request.type === 'session:cancel') {
+            this.ctx.sessionController.cancel({ sessionId: request.sessionId })
+            grant.dirty = true
+            return
+          }
+          if (request.type === 'approval:respond') {
+            const responder = grant.pendingApprovalAnswers.get(request.requestId)
+            if (responder) {
+              responder(request.approved)
+              grant.pendingApprovalAnswers.delete(request.requestId)
+            }
+            grant.dirty = true
+            return
+          }
+          if (request.type === 'question:answer') {
+            const userQuestions = this.ctx.get('userQuestions')
+            if (userQuestions && typeof (userQuestions as UserQuestionService).answer === 'function') {
+              const batch: AskUserQuestionAnswer = {
+                answers: Object.entries(request.answers).map(([id, val]) => ({ id, selected: [val] })),
+              }
+              ;(userQuestions as UserQuestionService).answer(grant.agent, request.questionId as ToolCallId, batch)
+            }
+            grant.dirty = true
+            return
+          }
           if (request.type === 'receipt') {
             this.reply(grant, { type: 'receipt', channel: request.channel, id: request.id, status: grant.receipts.get(request.id)?.status ?? 'not-seen' })
             return
@@ -260,14 +388,17 @@ export class MobileController extends TypertRemoteService {
           if (previous) status = previous.digest === digest ? previous.status : 'conflict'
           else if (grant.receipts.size >= 256) status = 'limit'
           else {
-            status = grant.agent.status === 'running' ? 'busy' : 'unknown'
+            const targetAgent = request.sessionId && request.sessionId !== grant.agent.id
+              ? (this.ctx.agents.get(request.sessionId) ?? grant.agent)
+              : grant.agent
+            status = targetAgent.status === 'running' ? 'busy' : 'unknown'
             const receipt: { digest: string; status: MobileReceiptStatus } = { digest, status }
             grant.receipts.set(request.id, receipt)
             if (status === 'unknown') {
               // No await separates the last authority check and synchronous inbox admission.
               if (!this.valid(grant) || socket.readyState !== WebSocket.OPEN) throw new Error('authorization ended')
               try {
-                grant.agent.followup(createUserMessage({ content: [{ type: 'text', text: request.text }],
+                targetAgent.followup(createUserMessage({ content: [{ type: 'text', text: request.text }],
                   source: { kind: 'user', rpcId: request.id as string as SessionRequestId } }))
                 receipt.status = status = 'accepted'
               } catch (_error) { /* Admission may have committed: keep the unknown receipt and never repeat it. */ }
@@ -306,8 +437,32 @@ export class MobileController extends TypertRemoteService {
     try {
       const questions = this.ctx.sessionProjections.snapshot(grant.agent.session, ['userQuestions']).values.userQuestions
       const needsAnswer = isRecord(questions) && Array.isArray(questions.active) && questions.active.length > 0
-      this.reply(grant, { type: 'state', channel: grant.channel, revision: ++grant.revision, expiresAt: grant.expiresAt,
-        value: grant.projection.snapshot(this.state.title, grant.agent.status === 'running', needsAnswer) })
+      // Backward-compatible v1 plain state
+      this.reply(grant, {
+        type: 'state',
+        channel: grant.channel,
+        revision: ++grant.revision,
+        expiresAt: grant.expiresAt,
+        value: grant.projection.snapshot(this.state.title, grant.agent.status === 'running', needsAnswer),
+      })
+      // Rich structured state
+      this.reply(grant, {
+        type: 'rich_state',
+        channel: grant.channel,
+        revision: grant.revision,
+        expiresAt: grant.expiresAt,
+        value: grant.projection.richSnapshot(grant.agent.id, this.state.title, grant.agent.status === 'running', needsAnswer),
+      })
+      // Active human-in-the-loop approvals
+      const approvals = grant.projection.approvals()
+      if (approvals.length > 0) {
+        this.reply(grant, { type: 'approval:active', channel: grant.channel, pending: approvals })
+      }
+      // Active human-in-the-loop questions
+      const pendingQuestions = grant.projection.questions()
+      if (pendingQuestions.length > 0) {
+        this.reply(grant, { type: 'question:active', channel: grant.channel, pending: pendingQuestions })
+      }
       grant.dirty = false
     } catch (_error) { void this.end('failed') }
   }

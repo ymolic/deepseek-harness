@@ -1,4 +1,4 @@
-/** Desktop authorization controls and the deliberately small mobile text protocol. */
+/** Desktop authorization controls and the mobile capability protocol. */
 import type { Branded } from '@deepseek-ai/dsh-brand'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 
@@ -11,6 +11,7 @@ export type MobileChannelId = Branded<'mobile-channel-id'>
 export interface MobileStartRequest {
   readonly sessionId: SessionId
   readonly acknowledgeTools: true
+  readonly allowWorkspaceRoaming?: boolean
 }
 
 /** Non-secret state safe to show after closing the QR dialog. */
@@ -45,12 +46,74 @@ export interface MobileSnapshot {
   readonly truncated: boolean
 }
 
-/** Mobile requests have no session, path, permission, or generic RPC field. */
+/** Summary of one Session visible in mobile navigation. */
+export interface MobileSessionSummary {
+  readonly sessionId: SessionId
+  readonly title: string
+  readonly updatedAt: number
+  readonly status: 'idle' | 'running' | 'desktop-input-required'
+}
+
+/** Summary of one Workspace visible in mobile navigation. */
+export interface MobileWorkspaceSummary {
+  readonly workspaceId: string
+  readonly name: string
+  readonly sessions: readonly MobileSessionSummary[]
+}
+
+/** Structured rich content block for mobile conversation cards. */
+export type MobileBlock =
+  | { readonly type: 'text'; readonly text: string }
+  | { readonly type: 'thinking'; readonly thinking: string }
+  | { readonly type: 'tool_call'; readonly callId: string; readonly name: string; readonly args?: string | undefined }
+  | { readonly type: 'tool_result'; readonly callId: string; readonly name: string; readonly summary?: string | undefined }
+
+/** Rich message carrying formatted blocks. */
+export interface MobileRichMessage {
+  readonly id: string
+  readonly role: 'user' | 'assistant'
+  readonly blocks: readonly MobileBlock[]
+}
+
+/** Rich conversation snapshot with Markdown and tool cards. */
+export interface MobileRichSnapshot {
+  readonly sessionId: SessionId
+  readonly title: string
+  readonly status: 'idle' | 'running' | 'desktop-input-required'
+  readonly messages: readonly MobileRichMessage[]
+  readonly live: MobileRichMessage | null
+  readonly truncated: boolean
+}
+
+/** Pending tool execution approval for mobile human-in-the-loop. */
+export interface MobileApprovalItem {
+  readonly id: string
+  readonly toolName: string
+  readonly description: string
+  readonly riskLevel?: 'normal' | 'high' | undefined
+}
+
+/** Pending user question for mobile human-in-the-loop. */
+export interface MobileQuestionItem {
+  readonly id: string
+  readonly question: string
+  readonly header?: string | undefined
+  readonly multiSelect?: boolean | undefined
+  readonly options?: readonly { readonly label: string; readonly description?: string | undefined }[] | undefined
+}
+
+/** Mobile requests validated by exact field allowlists. */
 export type MobileRequest =
   | { readonly type: 'hello'; readonly channel: MobileChannelId }
   | { readonly type: 'sync'; readonly channel: MobileChannelId }
-  | { readonly type: 'send'; readonly channel: MobileChannelId; readonly id: MobileRequestId; readonly text: string }
+  | { readonly type: 'send'; readonly channel: MobileChannelId; readonly id: MobileRequestId; readonly text: string; readonly sessionId?: SessionId }
   | { readonly type: 'receipt'; readonly channel: MobileChannelId; readonly id: MobileRequestId }
+  | { readonly type: 'workspace:list'; readonly channel: MobileChannelId }
+  | { readonly type: 'workspace:switch'; readonly channel: MobileChannelId; readonly workspaceId: string; readonly sessionId?: SessionId }
+  | { readonly type: 'session:follow'; readonly channel: MobileChannelId; readonly sessionId: SessionId }
+  | { readonly type: 'session:cancel'; readonly channel: MobileChannelId; readonly sessionId: SessionId }
+  | { readonly type: 'approval:respond'; readonly channel: MobileChannelId; readonly requestId: string; readonly approved: boolean; readonly rationale?: string }
+  | { readonly type: 'question:answer'; readonly channel: MobileChannelId; readonly questionId: string; readonly answers: Record<string, string> }
 
 /** Admission is distinct from completion of the Agent's work. */
 export type MobileReceiptStatus = 'accepted' | 'busy' | 'unknown' | 'not-seen' | 'limit' | 'conflict'
@@ -58,4 +121,8 @@ export type MobileReceiptStatus = 'accepted' | 'busy' | 'unknown' | 'not-seen' |
 /** Replies are encrypted and bound to the browser's current generation. */
 export type MobileReply =
   | { readonly type: 'state'; readonly channel: MobileChannelId; readonly revision: number; readonly expiresAt: number; readonly value: MobileSnapshot }
+  | { readonly type: 'rich_state'; readonly channel: MobileChannelId; readonly revision: number; readonly expiresAt: number; readonly value: MobileRichSnapshot }
+  | { readonly type: 'workspace:state'; readonly channel: MobileChannelId; readonly revision: number; readonly workspaces: readonly MobileWorkspaceSummary[]; readonly activeWorkspaceId?: string; readonly activeSessionId?: SessionId }
+  | { readonly type: 'approval:active'; readonly channel: MobileChannelId; readonly pending: readonly MobileApprovalItem[] }
+  | { readonly type: 'question:active'; readonly channel: MobileChannelId; readonly pending: readonly MobileQuestionItem[] }
   | { readonly type: 'receipt'; readonly channel: MobileChannelId; readonly id: MobileRequestId; readonly status: MobileReceiptStatus }

@@ -1,6 +1,7 @@
 /** AES-GCM text channel. A QR secret is never sent to the relay. */
 import { createCipheriv, createDecipheriv, hkdfSync, randomBytes } from 'node:crypto'
 import type { MobileRequest, MobileChannelId, MobileRequestId } from './types.ts'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
 
 /** Limits shared by the published mobile wire protocol. */
 export const MOBILE_WIRE = { maxPlainBytes: 32 * 1024, maxWireBytes: 48 * 1024, maxTextBytes: 8000, maxGenerations: 32 } as const
@@ -33,13 +34,52 @@ function exact(value: Record<string, unknown>, keys: readonly string[]): boolean
 export function mobileRequest(value: unknown): MobileRequest | undefined {
   if (!isRecord(value) || typeof value.channel !== 'string' || !/^[A-Za-z0-9_-]{22}$/.test(value.channel)) return
   const channel = value.channel as MobileChannelId
-  if ((value.type === 'hello' || value.type === 'sync') && exact(value, ['type', 'channel'])) return { type: value.type, channel }
+  if ((value.type === 'hello' || value.type === 'sync' || value.type === 'workspace:list') && exact(value, ['type', 'channel'])) {
+    return { type: value.type, channel }
+  }
+  if (value.type === 'workspace:switch') {
+    if (typeof value.workspaceId !== 'string' || value.workspaceId.length === 0 || value.workspaceId.length > 128) return
+    if (exact(value, ['type', 'channel', 'workspaceId'])) return { type: 'workspace:switch', channel, workspaceId: value.workspaceId }
+    if (exact(value, ['type', 'channel', 'workspaceId', 'sessionId']) && typeof value.sessionId === 'string' && value.sessionId.length > 0 && value.sessionId.length <= 128) {
+      return { type: 'workspace:switch', channel, workspaceId: value.workspaceId, sessionId: value.sessionId as SessionId }
+    }
+    return
+  }
+  if (value.type === 'session:follow' || value.type === 'session:cancel') {
+    if (typeof value.sessionId !== 'string' || value.sessionId.length === 0 || value.sessionId.length > 128) return
+    if (exact(value, ['type', 'channel', 'sessionId'])) return { type: value.type, channel, sessionId: value.sessionId as SessionId }
+    return
+  }
+  if (value.type === 'approval:respond') {
+    if (typeof value.requestId !== 'string' || value.requestId.length === 0 || value.requestId.length > 128 || typeof value.approved !== 'boolean') return
+    if (exact(value, ['type', 'channel', 'requestId', 'approved'])) return { type: 'approval:respond', channel, requestId: value.requestId, approved: value.approved }
+    if (exact(value, ['type', 'channel', 'requestId', 'approved', 'rationale']) && typeof value.rationale === 'string' && Buffer.byteLength(value.rationale) <= 1000) {
+      return { type: 'approval:respond', channel, requestId: value.requestId, approved: value.approved, rationale: value.rationale }
+    }
+    return
+  }
+  if (value.type === 'question:answer') {
+    if (typeof value.questionId !== 'string' || value.questionId.length === 0 || value.questionId.length > 128 || !isRecord(value.answers)) return
+    if (exact(value, ['type', 'channel', 'questionId', 'answers'])) {
+      const answers: Record<string, string> = {}
+      for (const [k, v] of Object.entries(value.answers)) {
+        if (typeof k !== 'string' || k.length > 128 || typeof v !== 'string' || Buffer.byteLength(v) > 2000) return
+        answers[k] = v
+      }
+      return { type: 'question:answer', channel, questionId: value.questionId, answers }
+    }
+    return
+  }
   if (typeof value.id !== 'string' || !/^[A-Za-z0-9_-]{16,64}$/.test(value.id)) return
   const id = value.id as MobileRequestId
   if (value.type === 'receipt' && exact(value, ['type', 'channel', 'id'])) return { type: 'receipt', channel, id }
-  if (value.type === 'send' && exact(value, ['type', 'channel', 'id', 'text'])
-    && typeof value.text === 'string' && value.text.trim().length > 0
-    && Buffer.byteLength(value.text) <= MOBILE_WIRE.maxTextBytes) return { type: 'send', channel, id, text: value.text }
+  if (value.type === 'send') {
+    if (typeof value.text !== 'string' || value.text.trim().length === 0 || Buffer.byteLength(value.text) > MOBILE_WIRE.maxTextBytes) return
+    if (exact(value, ['type', 'channel', 'id', 'text'])) return { type: 'send', channel, id, text: value.text }
+    if (exact(value, ['type', 'channel', 'id', 'text', 'sessionId']) && typeof value.sessionId === 'string' && value.sessionId.length > 0 && value.sessionId.length <= 128) {
+      return { type: 'send', channel, id, text: value.text, sessionId: value.sessionId as SessionId }
+    }
+  }
   return
 }
 
