@@ -54,8 +54,16 @@ export class MobileModel {
         const value = await this.operations.status()
         if (!this.disposed && this.generation === generation) this.source.update((state) => {
           state.state = value
-          if (!['waiting', 'reconnecting'].includes(value.phase) || value.ticketExpiresAt !== null && value.ticketExpiresAt <= Date.now()) state.qr = null
+          if (!['waiting', 'paired', 'reconnecting'].includes(value.phase) || (value.expiresAt !== null && value.expiresAt <= Date.now())) {
+            state.qr = null
+          }
         })
+        if (this.current(generation) && value.pairingUrl && !this.source.getSnapshot().qr) {
+          try {
+            const qr = await QRCode.toDataURL(value.pairingUrl, { width: 300, margin: 2, errorCorrectionLevel: 'M' })
+            if (this.current(generation)) this.source.update((s) => { s.qr = qr })
+          } catch {}
+        }
       } catch (_error) { if (!this.disposed && this.generation === generation) this.source.update((state) => { state.failed = true }) }
     })()
     this.reading = task

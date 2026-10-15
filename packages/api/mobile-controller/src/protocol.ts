@@ -34,8 +34,28 @@ function exact(value: Record<string, unknown>, keys: readonly string[]): boolean
 export function mobileRequest(value: unknown): MobileRequest | undefined {
   if (!isRecord(value) || typeof value.channel !== 'string' || !/^[A-Za-z0-9_-]{22}$/.test(value.channel)) return
   const channel = value.channel as MobileChannelId
-  if ((value.type === 'hello' || value.type === 'sync' || value.type === 'workspace:list') && exact(value, ['type', 'channel'])) {
+  if ((value.type === 'hello' || value.type === 'sync' || value.type === 'workspace:list' || value.type === 'model:list') && exact(value, ['type', 'channel'])) {
     return { type: value.type, channel }
+  }
+  if (value.type === 'session:create') {
+    if (exact(value, ['type', 'channel'])) return { type: 'session:create', channel }
+    if (exact(value, ['type', 'channel', 'workspaceId']) && typeof value.workspaceId === 'string' && value.workspaceId.length > 0 && value.workspaceId.length <= 128) {
+      return { type: 'session:create', channel, workspaceId: value.workspaceId }
+    }
+    return
+  }
+  if (value.type === 'session:permission') {
+    if (exact(value, ['type', 'channel', 'mode']) && (value.mode === 'plan' || value.mode === 'build' || value.mode === 'auto' || value.mode === 'yolo')) {
+      return { type: 'session:permission', channel, mode: value.mode }
+    }
+    return
+  }
+  if (value.type === 'session:select_model') {
+    if (exact(value, ['type', 'channel', 'provider', 'model']) && typeof value.provider === 'string' && value.provider.length > 0 && value.provider.length <= 128
+      && typeof value.model === 'string' && value.model.length > 0 && value.model.length <= 128) {
+      return { type: 'session:select_model', channel, provider: value.provider, model: value.model }
+    }
+    return
   }
   if (value.type === 'workspace:switch') {
     if (typeof value.workspaceId !== 'string' || value.workspaceId.length === 0 || value.workspaceId.length > 128) return

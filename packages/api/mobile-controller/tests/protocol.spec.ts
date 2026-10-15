@@ -19,6 +19,12 @@ describe('mobile text protocol', () => {
       { type: 'approval:respond', channel, requestId: 'req-1', approved: true },
       { type: 'approval:respond', channel, requestId: 'req-1', approved: false, rationale: '不安全' },
       { type: 'question:answer', channel, questionId: 'q-1', answers: { choice: 'yes' } },
+      { type: 'session:permission', channel, mode: 'build' },
+      { type: 'session:permission', channel, mode: 'plan' },
+      { type: 'model:list', channel },
+      { type: 'session:select_model', channel, provider: 'deepseek', model: 'deepseek-chat' },
+      { type: 'session:create', channel },
+      { type: 'session:create', channel, workspaceId: 'ws-1' },
     ]) expect(mobileRequest(value)).toEqual(value)
     for (const value of [null, [], {}, { type: 'rpc', channel },
       { type: 'send', channel, id, text: ' ' }, { type: 'send', channel, id, text: 'x'.repeat(8001) },

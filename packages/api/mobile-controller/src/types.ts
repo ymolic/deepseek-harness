@@ -22,6 +22,7 @@ export interface MobileDesktopState {
   readonly expiresAt: number | null
   readonly ticketExpiresAt: number | null
   readonly relayRevoked: boolean
+  readonly pairingUrl?: string | undefined
 }
 
 /** Private response to one desktop gesture; never log or persist pairingUrl. */
@@ -75,6 +76,14 @@ export interface MobileRichMessage {
   readonly blocks: readonly MobileBlock[]
 }
 
+/** Available model info exposed to mobile. */
+export interface MobileModelItem {
+  readonly id: string
+  readonly name: string
+  readonly provider: string
+  readonly description?: string | undefined
+}
+
 /** Rich conversation snapshot with Markdown and tool cards. */
 export interface MobileRichSnapshot {
   readonly sessionId: SessionId
@@ -83,6 +92,9 @@ export interface MobileRichSnapshot {
   readonly messages: readonly MobileRichMessage[]
   readonly live: MobileRichMessage | null
   readonly truncated: boolean
+  readonly currentPermissionMode?: 'plan' | 'build' | 'auto' | 'yolo' | undefined
+  readonly currentModel?: { readonly provider: string; readonly model: string; readonly displayName?: string | undefined } | undefined
+  readonly availableModels?: readonly MobileModelItem[] | undefined
 }
 
 /** Pending tool execution approval for mobile human-in-the-loop. */
@@ -110,8 +122,12 @@ export type MobileRequest =
   | { readonly type: 'receipt'; readonly channel: MobileChannelId; readonly id: MobileRequestId }
   | { readonly type: 'workspace:list'; readonly channel: MobileChannelId }
   | { readonly type: 'workspace:switch'; readonly channel: MobileChannelId; readonly workspaceId: string; readonly sessionId?: SessionId }
+  | { readonly type: 'session:create'; readonly channel: MobileChannelId; readonly workspaceId?: string }
   | { readonly type: 'session:follow'; readonly channel: MobileChannelId; readonly sessionId: SessionId }
   | { readonly type: 'session:cancel'; readonly channel: MobileChannelId; readonly sessionId: SessionId }
+  | { readonly type: 'session:permission'; readonly channel: MobileChannelId; readonly mode: 'plan' | 'build' | 'auto' | 'yolo' }
+  | { readonly type: 'model:list'; readonly channel: MobileChannelId }
+  | { readonly type: 'session:select_model'; readonly channel: MobileChannelId; readonly provider: string; readonly model: string }
   | { readonly type: 'approval:respond'; readonly channel: MobileChannelId; readonly requestId: string; readonly approved: boolean; readonly rationale?: string }
   | { readonly type: 'question:answer'; readonly channel: MobileChannelId; readonly questionId: string; readonly answers: Record<string, string> }
 
@@ -123,6 +139,8 @@ export type MobileReply =
   | { readonly type: 'state'; readonly channel: MobileChannelId; readonly revision: number; readonly expiresAt: number; readonly value: MobileSnapshot }
   | { readonly type: 'rich_state'; readonly channel: MobileChannelId; readonly revision: number; readonly expiresAt: number; readonly value: MobileRichSnapshot }
   | { readonly type: 'workspace:state'; readonly channel: MobileChannelId; readonly revision: number; readonly workspaces: readonly MobileWorkspaceSummary[]; readonly activeWorkspaceId?: string; readonly activeSessionId?: SessionId }
+  | { readonly type: 'model:catalog'; readonly channel: MobileChannelId; readonly models: readonly MobileModelItem[] }
+  | { readonly type: 'permission:state'; readonly channel: MobileChannelId; readonly mode: 'plan' | 'build' | 'auto' | 'yolo' }
   | { readonly type: 'approval:active'; readonly channel: MobileChannelId; readonly pending: readonly MobileApprovalItem[] }
   | { readonly type: 'question:active'; readonly channel: MobileChannelId; readonly pending: readonly MobileQuestionItem[] }
   | { readonly type: 'receipt'; readonly channel: MobileChannelId; readonly id: MobileRequestId; readonly status: MobileReceiptStatus }

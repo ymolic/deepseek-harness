@@ -2,7 +2,7 @@
 import type { SessionFollowFrame, SessionWireEvent } from '@deepseek-ai/dsh-api-session-controller/types'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { isRecord } from './protocol.ts'
-import type { MobileApprovalItem, MobileBlock, MobileQuestionItem, MobileRichMessage, MobileRichSnapshot, MobileSnapshot, MobileText } from './types.ts'
+import type { MobileApprovalItem, MobileBlock, MobileModelItem, MobileQuestionItem, MobileRichMessage, MobileRichSnapshot, MobileSnapshot, MobileText } from './types.ts'
 
 function textContent(value: unknown): string {
   if (!isRecord(value) || !Array.isArray(value.content)) return ''
@@ -28,6 +28,22 @@ function bounded(text: string, bytes: number): string {
   const encoded = Buffer.from(text)
   if (encoded.length <= bytes) return text
   return new TextDecoder().decode(encoded.subarray(0, bytes - 3)).replace(/\uFFFD$/, '') + '…'
+}
+
+function formatToolArgs(_name: string, raw: unknown): string | undefined {
+  if (raw === undefined || raw === null) return undefined
+  if (typeof raw === 'string') return bounded(raw, 1000)
+  if (isRecord(raw)) {
+    if (typeof raw.command === 'string') return bounded(raw.command, 500)
+    if (typeof raw.file_path === 'string') return bounded(raw.file_path, 300)
+    if (typeof raw.path === 'string') return bounded(raw.path, 300)
+    if (typeof raw.pattern === 'string') return bounded(`pattern: ${raw.pattern}`, 300)
+    if (typeof raw.query === 'string') return bounded(raw.query, 300)
+    if (Array.isArray(raw.queries)) return bounded(raw.queries.join(', '), 300)
+    if (typeof raw.url === 'string') return bounded(raw.url, 300)
+    return bounded(JSON.stringify(raw), 1000)
+  }
+  return bounded(typeof raw === 'number' || typeof raw === 'boolean' ? String(raw) : (JSON.stringify(raw) || ''), 500)
 }
 
 /** Keeps only recent user/assistant text; every frame is a full replacement. */
@@ -99,9 +115,20 @@ export class MobileProjection {
    * @param title - Session label.
    * @param running - current whole-Agent state.
    * @param questions - whether an interactive question is pending.
+   * @param permissionMode - current permission mode.
+   * @param model - current model selection.
+   * @param availableModels - available model choices.
    * @returns the rich conversation snapshot.
    */
-  richSnapshot(sessionId: SessionId, title: string, running: boolean, questions = false): MobileRichSnapshot {
+  richSnapshot(
+    sessionId: SessionId,
+    title: string,
+    running: boolean,
+    questions = false,
+    permissionMode?: 'plan' | 'build' | 'auto' | 'yolo',
+    model?: { readonly provider: string; readonly model: string; readonly displayName?: string },
+    availableModels?: readonly MobileModelItem[],
+  ): MobileRichSnapshot {
     return {
       sessionId,
       title,
@@ -109,6 +136,9 @@ export class MobileProjection {
       messages: this.richMessages,
       live: this.liveRich,
       truncated: this.truncated,
+      ...(permissionMode ? { currentPermissionMode: permissionMode } : {}),
+      ...(model ? { currentModel: model } : {}),
+      ...(availableModels ? { availableModels } : {}),
     }
   }
 
@@ -185,14 +215,14 @@ export class MobileProjection {
       } else if (typeof event.data.callId === 'string' && typeof event.data.name === 'string') {
         const lastMsg = this.richMessages.at(-1)
         if (lastMsg && lastMsg.role === 'assistant') {
-          const args = event.data.args !== undefined ? (typeof event.data.args === 'string' ? event.data.args : JSON.stringify(event.data.args)) : undefined
+          const args = formatToolArgs(event.data.name, event.data.args)
           const updatedBlocks: MobileBlock[] = [
             ...lastMsg.blocks,
             {
               type: 'tool_call',
               callId: event.data.callId,
               name: event.data.name,
-              args: args ? bounded(args, 1000) : undefined,
+              args,
             },
           ]
           this.richMessages[this.richMessages.length - 1] = { ...lastMsg, blocks: updatedBlocks }
@@ -237,7 +267,8 @@ export class MobileProjection {
     if (blocks.length === 0) blocks.push({ type: 'text', text: cropped })
     this.richMessages.push({ id: String(event.seq), role, blocks })
 
-    while (this.messages.length > 40 || Buffer.byteLength(JSON.stringify(this.messages)) > this.maxHistoryBytes) {
+    while (this.messages.length > 40 || Buffer.byteLength(JSON.stringify(this.messages)) > this.maxHistoryBytes
+      || this.richMessages.length > 30 || Buffer.byteLength(JSON.stringify(this.richMessages)) > 18000) {
       this.messages.shift(); this.richMessages.shift(); this.truncated = true
     }
     if (role === 'assistant') {

@@ -62,7 +62,7 @@ describe('phone Session excerpts', () => {
     expect(rich.messages[1].role).toBe('assistant')
     expect(rich.messages[1].blocks).toEqual([
       { type: 'text', text: 'Executing...' },
-      { type: 'tool_call', callId: 'call-1', name: 'pwsh', args: '{"command":"dir"}' },
+      { type: 'tool_call', callId: 'call-1', name: 'pwsh', args: 'dir' },
       { type: 'tool_result', callId: 'call-1', name: 'pwsh', summary: 'File list output' },
     ])
     expect(projection.approvals()).toEqual([

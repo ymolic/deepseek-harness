@@ -10,11 +10,12 @@ import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { ToolCallId } from '@deepseek-ai/dsh-llm'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
-import type {} from '@deepseek-ai/dsh-workspace'
+import { WorkspaceId } from '@deepseek-ai/dsh-workspace'
 import type {} from '@deepseek-ai/dsh-session-projection'
 import type {} from '@deepseek-ai/dsh-session-title/types'
+import type { SessionSummary } from '@deepseek-ai/dsh-api-session-controller/types'
 import type { ApprovalRequest, ApprovalOutcome } from '@deepseek-ai/dsh-user-approval'
-import type { UserQuestionService, AskUserQuestionAnswer } from '@deepseek-ai/dsh-user-questions'
+import type { AskUserQuestionAnswer } from '@deepseek-ai/dsh-user-questions'
 import type {} from '@deepseek-ai/dsh-user-questions/types'
 import { Remote, RemoteError, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import { WebSocket } from 'ws'
@@ -24,12 +25,32 @@ import { createRoom, revokeRoom, connectDevice, closeDevice, type RelayRoom } fr
 import type {
   MobileChannelId, MobileDesktopState, MobileReply, MobileRequestId, MobileReceiptStatus,
   MobileStartRequest, MobileStartResult, MobileWorkspaceSummary, MobileSessionSummary,
+  MobileModelItem,
 } from './types.ts'
 
 export type * from './types.ts'
 
+interface PlanModeService {
+  set(agent: Agent, active: boolean): void
+  loggedActive(session: unknown): boolean
+}
+
+interface PermissionPresetsService {
+  current(session: unknown): string
+  set(session: unknown, name: string): void
+}
+
+interface AgentDefaultModelService {
+  currentSelection(): { provider: string; model: string }
+}
+
 declare module '@deepseek-ai/cordis' {
-  interface Context { mobileController: MobileController }
+  interface Context {
+    mobileController: MobileController
+    planMode?: PlanModeService
+    permissionPresets?: PermissionPresetsService
+    agentDefaultModel?: AgentDefaultModelService
+  }
 }
 
 /** Deployment choices; the protocol's security ceilings remain fixed. */
@@ -60,6 +81,7 @@ interface Grant {
   readonly deadline: number
   readonly receipts: Map<MobileRequestId, { digest: string; status: MobileReceiptStatus }>
   readonly pendingApprovalAnswers: Map<string, (approved: boolean) => void>
+  readonly pairingUrl: string
   task: Promise<void>
   observeAbort: AbortController | undefined
   socket: WebSocket | undefined
@@ -143,7 +165,12 @@ export class MobileController extends TypertRemoteService {
    * @returns authorization state without credentials or QR material.
    */
   @Remote
-  status(): MobileDesktopState { return this.state }
+  status(): MobileDesktopState {
+    if (this.grant && this.valid(this.grant)) {
+      return { ...this.state, pairingUrl: this.grant.pairingUrl }
+    }
+    return this.state
+  }
 
   /**
    * Explicitly authorize one existing, ordinary, unarchived Session.
@@ -204,16 +231,19 @@ export class MobileController extends TypertRemoteService {
       const cipher = new MobileCipher(secret, room.roomId)
       const expiresAt = Date.now() + duration
       const observeAbort = new AbortController()
+      const fragment = new URLSearchParams({ room: room.roomId, ticket: room.pairingTicket, key: secret.toString('base64url') })
+      secret.fill(0)
+      const pairingUrl = `${this.config.relayOrigin}/#${fragment}`
       const grant: Grant = {
         agent: found.agent, room, cipher, projection: new MobileProjection(this.config.historyBytes),
         abort: new AbortController(), expiresAt, deadline: performance.now() + duration, receipts: new Map(),
-        pendingApprovalAnswers: new Map(), task: Promise.resolve(), observeAbort,
+        pendingApprovalAnswers: new Map(), task: Promise.resolve(), observeAbort, pairingUrl,
         socket: undefined, channel: undefined, revision: 0, dirty: true, attempts: 0, retry: undefined, stable: undefined, tick: undefined,
       }
       this.grant = grant
       installed = true
       this.state = { phase: 'waiting', sessionId: request.sessionId, title: (selected.projections?.values.title ?? '').slice(0, 160),
-        expiresAt, ticketExpiresAt: room.expiresAt, relayRevoked: false }
+        expiresAt, ticketExpiresAt: room.expiresAt, relayRevoked: false, pairingUrl }
       grant.task = this.observe(grant, observeAbort.signal)
       grant.tick = setInterval(() => {
         if (!this.valid(grant)) { void this.end('expired'); return }
@@ -222,9 +252,7 @@ export class MobileController extends TypertRemoteService {
       await this.connect(grant)
       abort.signal.throwIfAborted()
       if (!this.valid(grant)) throw new Error('authorization ended')
-      const fragment = new URLSearchParams({ room: room.roomId, ticket: room.pairingTicket, key: secret.toString('base64url') })
-      secret.fill(0)
-      return { pairingUrl: `${this.config.relayOrigin}/#${fragment}`, state: this.state }
+      return { pairingUrl, state: this.state }
     } catch (_error) {
       const phase = abort.signal.aborted || this.disposed ? 'stopped' : 'failed'
       // A room can arrive after Stop aborted its caller but before a Grant exists.
@@ -242,28 +270,54 @@ export class MobileController extends TypertRemoteService {
 
   private async getWorkspaceSummaries(): Promise<MobileWorkspaceSummary[]> {
     try {
-      const workspaces = this.ctx.workspaceRegistry?.list() ?? []
-      const { items: sessions } = await this.ctx.sessionController.list({}, new AbortController().signal)
+      const workspaces = this.ctx.workspaceRegistry.list()
+      let sessions: readonly SessionSummary[] = []
+      try {
+        const result = await this.ctx.sessionController.list({}, new AbortController().signal)
+        sessions = result.items
+      } catch (err) {
+        this.ctx.logger.warn('mobile getWorkspaceSummaries: sessionController.list failed: %o', err)
+      }
       const sessionMap = new Map(sessions.map(s => [s.sessionId, s]))
+      const archived = new Set(this.ctx.workspaceRegistry.archivedSessionIds)
       const summaries: MobileWorkspaceSummary[] = []
+      const accounted = new Set<string>()
+
       for (const ws of workspaces) {
         const wsSessions: MobileSessionSummary[] = []
         for (const sId of ws.sessionIds) {
+          if (archived.has(sId)) continue
+          accounted.add(sId)
           const info = sessionMap.get(sId)
-          if (!info || this.ctx.workspaceRegistry.archivedSessionIds.includes(sId)) continue
           const activeAgent = this.ctx.agents.get(sId)
           const status = activeAgent ? (activeAgent.status === 'running' ? 'running' : 'idle') : 'idle'
-          wsSessions.push({
-            sessionId: sId,
-            title: (info.projections?.values.title ?? '').slice(0, 160) || 'Session',
-            updatedAt: new Date(info.updatedAt).getTime() || Date.now(),
-            status,
-          })
+          const title = (info?.projections?.values.title ?? '').slice(0, 100) || 'Session'
+          const updatedAt = typeof info?.updatedAt === 'number' ? info.updatedAt : Date.now()
+          wsSessions.push({ sessionId: sId, title, updatedAt, status })
+          if (wsSessions.length >= 25) break
         }
         summaries.push({
           workspaceId: ws.id,
           name: ws.title || ws.path,
           sessions: wsSessions,
+        })
+      }
+
+      const unassigned: MobileSessionSummary[] = []
+      for (const s of sessions) {
+        if (!accounted.has(s.sessionId) && !archived.has(s.sessionId)) {
+          const activeAgent = this.ctx.agents.get(s.sessionId)
+          const status = activeAgent ? (activeAgent.status === 'running' ? 'running' : 'idle') : 'idle'
+          const title = (s.projections?.values.title ?? '').slice(0, 100) || 'Session'
+          unassigned.push({ sessionId: s.sessionId, title, updatedAt: s.updatedAt || Date.now(), status })
+          if (unassigned.length >= 20) break
+        }
+      }
+      if (unassigned.length > 0) {
+        summaries.push({
+          workspaceId: 'default',
+          name: '其他会话',
+          sessions: unassigned,
         })
       }
       return summaries
@@ -316,97 +370,194 @@ export class MobileController extends TypertRemoteService {
         this.state = { ...this.state, phase: 'waiting' }
         resolve()
       })
-      socket.on('message', async (bytes, binary) => {
-        if (!this.valid(grant) || grant.socket !== socket) return
-        try {
-          const data = Array.isArray(bytes) ? Buffer.concat(bytes) : Buffer.isBuffer(bytes) ? bytes : Buffer.from(bytes)
-          if (binary || data.length > MOBILE_WIRE.maxWireBytes) throw new Error('invalid mobile frame')
-          const value: unknown = JSON.parse(data.toString('utf8'))
-          if (isRecord(value) && value.type === 'status') {
-            if (value.protocol !== 1 || value.mode !== 'session-chat-e2ee') throw new Error('unsupported mobile relay')
-            if (value.mobileOnline !== true) grant.channel = undefined
-            this.state = { ...this.state, phase: value.paired === true ? 'paired' : 'waiting' }
-            return
-          }
-          const plain = grant.cipher.open(value)
-          if (plain === undefined) return
-          const request = mobileRequest(plain)
-          if (!request) throw new Error('invalid mobile request')
-          if (request.type === 'hello') { grant.cipher.rotateSend(); grant.channel = request.channel; grant.dirty = true; this.flush(grant); return }
-          if (request.channel !== grant.channel) throw new Error('retired mobile channel')
-          if (request.type === 'sync') { grant.dirty = true; this.flush(grant); return }
-          if (request.type === 'workspace:list') {
-            const summaries = await this.getWorkspaceSummaries()
-            this.reply(grant, {
-              type: 'workspace:state',
-              channel: request.channel,
-              revision: ++grant.revision,
-              workspaces: summaries,
-              activeSessionId: grant.agent.id,
-            })
-            return
-          }
-          if (request.type === 'workspace:switch' || request.type === 'session:follow') {
-            const targetId = request.sessionId
-            if (targetId) {
-              await this.switchSession(grant, targetId)
+      socket.on('message', (bytes, binary) => {
+        void (async () => {
+          if (!this.valid(grant) || grant.socket !== socket) return
+          try {
+            const data = Array.isArray(bytes) ? Buffer.concat(bytes) : Buffer.isBuffer(bytes) ? bytes : Buffer.from(bytes)
+            if (binary || data.length > MOBILE_WIRE.maxWireBytes) throw new Error('invalid mobile frame')
+            const value: unknown = JSON.parse(data.toString('utf8'))
+            if (isRecord(value) && value.type === 'status') {
+              if (value.protocol !== 1 || value.mode !== 'session-chat-e2ee') throw new Error('unsupported mobile relay')
+              if (value.mobileOnline !== true) grant.channel = undefined
+              this.state = { ...this.state, phase: value.paired === true ? 'paired' : 'waiting' }
+              return
             }
-            return
-          }
-          if (request.type === 'session:cancel') {
-            this.ctx.sessionController.cancel({ sessionId: request.sessionId })
-            grant.dirty = true
-            return
-          }
-          if (request.type === 'approval:respond') {
-            const responder = grant.pendingApprovalAnswers.get(request.requestId)
-            if (responder) {
-              responder(request.approved)
-              grant.pendingApprovalAnswers.delete(request.requestId)
-            }
-            grant.dirty = true
-            return
-          }
-          if (request.type === 'question:answer') {
-            const userQuestions = this.ctx.get('userQuestions')
-            if (userQuestions && typeof (userQuestions as UserQuestionService).answer === 'function') {
-              const batch: AskUserQuestionAnswer = {
-                answers: Object.entries(request.answers).map(([id, val]) => ({ id, selected: [val] })),
-              }
-              ;(userQuestions as UserQuestionService).answer(grant.agent, request.questionId as ToolCallId, batch)
-            }
-            grant.dirty = true
-            return
-          }
-          if (request.type === 'receipt') {
-            this.reply(grant, { type: 'receipt', channel: request.channel, id: request.id, status: grant.receipts.get(request.id)?.status ?? 'not-seen' })
-            return
-          }
-          const digest = createHash('sha256').update(request.text).digest('hex')
-          const previous = grant.receipts.get(request.id)
-          let status: MobileReceiptStatus
-          if (previous) status = previous.digest === digest ? previous.status : 'conflict'
-          else if (grant.receipts.size >= 256) status = 'limit'
-          else {
-            const targetAgent = request.sessionId && request.sessionId !== grant.agent.id
-              ? (this.ctx.agents.get(request.sessionId) ?? grant.agent)
-              : grant.agent
-            status = targetAgent.status === 'running' ? 'busy' : 'unknown'
-            const receipt: { digest: string; status: MobileReceiptStatus } = { digest, status }
-            grant.receipts.set(request.id, receipt)
-            if (status === 'unknown') {
-              // No await separates the last authority check and synchronous inbox admission.
-              if (!this.valid(grant) || socket.readyState !== WebSocket.OPEN) throw new Error('authorization ended')
+            const plain = grant.cipher.open(value)
+            if (plain === undefined) return
+            const request = mobileRequest(plain)
+            if (!request) return
+            if (request.type === 'hello') { grant.cipher.rotateSend(); grant.channel = request.channel; grant.dirty = true; this.flush(grant); return }
+            if (request.channel !== grant.channel) return
+            if (request.type === 'sync') { grant.dirty = true; this.flush(grant); return }
+
+            if (request.type === 'workspace:list') {
               try {
-                targetAgent.followup(createUserMessage({ content: [{ type: 'text', text: request.text }],
-                  source: { kind: 'user', rpcId: request.id as string as SessionRequestId } }))
-                receipt.status = status = 'accepted'
-              } catch (_error) { /* Admission may have committed: keep the unknown receipt and never repeat it. */ }
+                const summaries = await this.getWorkspaceSummaries()
+                this.reply(grant, {
+                  type: 'workspace:state',
+                  channel: request.channel,
+                  revision: ++grant.revision,
+                  workspaces: summaries,
+                  activeSessionId: grant.agent.id,
+                })
+              } catch (err) {
+                this.ctx.logger.warn('mobile workspace:list error: %o', err)
+              }
+              return
             }
+            if (request.type === 'workspace:switch' || request.type === 'session:follow') {
+              const targetId = request.sessionId
+              if (targetId) {
+                await this.switchSession(grant, targetId)
+              }
+              return
+            }
+            if (request.type === 'session:create') {
+              try {
+                const created = await this.ctx.sessionController.create({
+                  ...(request.workspaceId && request.workspaceId !== 'default' ? { workspaceId: WorkspaceId(request.workspaceId) } : {}),
+                })
+                if (created.sessionId) {
+                  await this.switchSession(grant, created.sessionId)
+                  const summaries = await this.getWorkspaceSummaries()
+                  this.reply(grant, {
+                    type: 'workspace:state',
+                    channel: request.channel,
+                    revision: ++grant.revision,
+                    workspaces: summaries,
+                    activeSessionId: grant.agent.id,
+                  })
+                }
+              } catch (err) {
+                this.ctx.logger.warn('mobile session:create error: %o', err)
+              }
+              return
+            }
+            if (request.type === 'session:permission') {
+              try {
+                const planMode = this.ctx.get('planMode')
+                const permissionPresets = this.ctx.get('permissionPresets')
+                if (request.mode === 'plan') {
+                  planMode?.set(grant.agent, true)
+                  permissionPresets?.set(grant.agent.session, 'workspace-write')
+                } else {
+                  planMode?.set(grant.agent, false)
+                  if (request.mode === 'build') {
+                    permissionPresets?.set(grant.agent.session, 'workspace-write')
+                  } else if (request.mode === 'auto') {
+                    permissionPresets?.set(grant.agent.session, 'auto')
+                  } else {
+                    permissionPresets?.set(grant.agent.session, 'danger-full-access')
+                  }
+                }
+                this.reply(grant, {
+                  type: 'permission:state',
+                  channel: request.channel,
+                  mode: request.mode,
+                })
+                grant.dirty = true
+                this.flush(grant)
+              } catch (err) {
+                this.ctx.logger.warn('mobile session:permission error: %o', err)
+              }
+              return
+            }
+            if (request.type === 'model:list') {
+              try {
+                const catalog = await this.ctx.sessionController.modelCatalog()
+                const models: MobileModelItem[] = []
+                for (const group of catalog.groups) {
+                  for (const m of group.models) {
+                    models.push({
+                      id: m.id,
+                      name: m.name,
+                      provider: group.id,
+                      ...(m.description ? { description: m.description } : {}),
+                    })
+                  }
+                }
+                this.reply(grant, {
+                  type: 'model:catalog',
+                  channel: request.channel,
+                  models,
+                })
+              } catch (err) {
+                this.ctx.logger.warn('mobile model:list error: %o', err)
+              }
+              return
+            }
+            if (request.type === 'session:select_model') {
+              try {
+                await this.ctx.sessionController.selectModel({
+                  sessionId: grant.agent.id,
+                  provider: request.provider,
+                  model: request.model,
+                })
+                grant.dirty = true
+                this.flush(grant)
+              } catch (err) {
+                this.ctx.logger.warn('mobile session:select_model error: %o', err)
+              }
+              return
+            }
+            if (request.type === 'session:cancel') {
+              this.ctx.sessionController.cancel({ sessionId: request.sessionId })
+              grant.dirty = true
+              return
+            }
+            if (request.type === 'approval:respond') {
+              const responder = grant.pendingApprovalAnswers.get(request.requestId)
+              if (responder) {
+                responder(request.approved)
+                grant.pendingApprovalAnswers.delete(request.requestId)
+              }
+              grant.dirty = true
+              return
+            }
+            if (request.type === 'question:answer') {
+              const userQuestions = this.ctx.get('userQuestions')
+              if (userQuestions && typeof userQuestions.answer === 'function') {
+                const batch: AskUserQuestionAnswer = {
+                  answers: Object.entries(request.answers).map(([id, val]) => ({ id, selected: [val] })),
+                }
+                userQuestions.answer(grant.agent, request.questionId as ToolCallId, batch)
+              }
+              grant.dirty = true
+              return
+            }
+            if (request.type === 'receipt') {
+              this.reply(grant, { type: 'receipt', channel: request.channel, id: request.id, status: grant.receipts.get(request.id)?.status ?? 'not-seen' })
+              return
+            }
+            const digest = createHash('sha256').update(request.text).digest('hex')
+            const previous = grant.receipts.get(request.id)
+            let status: MobileReceiptStatus
+            if (previous) status = previous.digest === digest ? previous.status : 'conflict'
+            else if (grant.receipts.size >= 256) status = 'limit'
+            else {
+              const targetAgent = request.sessionId && request.sessionId !== grant.agent.id
+                ? (this.ctx.agents.get(request.sessionId) ?? grant.agent)
+                : grant.agent
+              status = targetAgent.status === 'running' ? 'busy' : 'unknown'
+              const receipt: { digest: string; status: MobileReceiptStatus } = { digest, status }
+              grant.receipts.set(request.id, receipt)
+              if (status === 'unknown') {
+                // No await separates the last authority check and synchronous inbox admission.
+                if (!this.valid(grant) || socket.readyState !== WebSocket.OPEN) throw new Error('authorization ended')
+                try {
+                  targetAgent.followup(createUserMessage({ content: [{ type: 'text', text: request.text }],
+                    source: { kind: 'user', rpcId: request.id as string as SessionRequestId } }))
+                  receipt.status = status = 'accepted'
+                } catch (_error) { /* Admission may have committed: keep the unknown receipt and never repeat it. */ }
+              }
+            }
+            this.reply(grant, { type: 'receipt', channel: request.channel, id: request.id, status })
+            grant.dirty = true
+          } catch (_error) {
+            this.ctx.logger.warn('mobile socket message handling error: %o', _error)
           }
-          this.reply(grant, { type: 'receipt', channel: request.channel, id: request.id, status })
-          grant.dirty = true
-        } catch (_error) { void this.end('failed') }
+        })()
       })
       socket.on('error', (_error) => { reject(new Error('mobile transport unavailable')) })
       socket.once('close', (code) => {
@@ -437,6 +588,42 @@ export class MobileController extends TypertRemoteService {
     try {
       const questions = this.ctx.sessionProjections.snapshot(grant.agent.session, ['userQuestions']).values.userQuestions
       const needsAnswer = isRecord(questions) && Array.isArray(questions.active) && questions.active.length > 0
+
+      let currentPermissionMode: 'plan' | 'build' | 'auto' | 'yolo' = 'build'
+      try {
+        const planMode = this.ctx.get('planMode')
+        const permissionPresets = this.ctx.get('permissionPresets')
+        if (planMode && planMode.loggedActive(grant.agent.session)) {
+          currentPermissionMode = 'plan'
+        } else if (permissionPresets) {
+          const cur = permissionPresets.current(grant.agent.session)
+          if (cur === 'danger-full-access') currentPermissionMode = 'yolo'
+          else if (cur === 'auto') currentPermissionMode = 'auto'
+          else currentPermissionMode = 'build'
+        }
+      } catch {}
+
+      let currentModel: { readonly provider: string; readonly model: string; readonly displayName?: string } | undefined
+      try {
+        const modelSnapshot = this.ctx.sessionProjections.snapshot(grant.agent.session, ['modelSelection']).values.modelSelection
+        if (isRecord(modelSnapshot)) {
+          const lastUsed = isRecord(modelSnapshot.lastUsed) ? modelSnapshot.lastUsed : undefined
+          const next = isRecord(modelSnapshot.next) ? modelSnapshot.next : undefined
+          const sel = next ?? lastUsed
+          if (sel && typeof sel.provider === 'string' && typeof sel.model === 'string') {
+            currentModel = { provider: sel.provider, model: sel.model, displayName: sel.model }
+          }
+        }
+      } catch {}
+      if (!currentModel) {
+        try {
+          const def = this.ctx.get('agentDefaultModel')?.currentSelection()
+          if (def && typeof def.provider === 'string' && typeof def.model === 'string') {
+            currentModel = { provider: def.provider, model: def.model, displayName: def.model }
+          }
+        } catch {}
+      }
+
       // Backward-compatible v1 plain state
       this.reply(grant, {
         type: 'state',
@@ -451,7 +638,14 @@ export class MobileController extends TypertRemoteService {
         channel: grant.channel,
         revision: grant.revision,
         expiresAt: grant.expiresAt,
-        value: grant.projection.richSnapshot(grant.agent.id, this.state.title, grant.agent.status === 'running', needsAnswer),
+        value: grant.projection.richSnapshot(
+          grant.agent.id,
+          this.state.title,
+          grant.agent.status === 'running',
+          needsAnswer,
+          currentPermissionMode,
+          currentModel,
+        ),
       })
       // Active human-in-the-loop approvals
       const approvals = grant.projection.approvals()
@@ -464,7 +658,9 @@ export class MobileController extends TypertRemoteService {
         this.reply(grant, { type: 'question:active', channel: grant.channel, pending: pendingQuestions })
       }
       grant.dirty = false
-    } catch (_error) { void this.end('failed') }
+    } catch (_error) {
+      this.ctx.logger.warn('mobile flush error: %o', _error)
+    }
   }
 
   private end(phase: MobileDesktopState['phase']): Promise<boolean> {
