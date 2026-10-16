@@ -155,6 +155,15 @@ it.runIf(relayRoot).each([
     const page = await browser.newPage({
       viewport: { width: 390, height: 844 }, locale: 'zh-CN', isMobile: true, hasTouch: true, deviceScaleFactor: 3,
     })
+    await page.addInitScript(() => {
+      const requests: string[] = []
+      Object.assign(window, { __DSH_TEST_APPLICATION_FETCHES__: requests })
+      navigator.serviceWorker.addEventListener('message', (event) => {
+        const data: unknown = event.data
+        if (data !== null && typeof data === 'object' && 'type' in data && data.type === 'application-fetch'
+          && 'path' in data && typeof data.path === 'string') requests.push(data.path)
+      })
+    })
     const errors: string[] = []
     const diagnostics: string[] = []
     const missingResources: string[] = []
@@ -318,9 +327,22 @@ it.runIf(relayRoot).each([
         .flatMap(event => event.type === 'user/message'
           ? [{ role: 'user', text: event.data.content.filter(part => part.type === 'text').map(part => part.text).join('') }]
           : event.type === 'assistant/message' ? [{ role: 'assistant', text: event.data.message.content.filter(part => part.type === 'text').map(part => part.text).join('') }] : []), null, 2), webSnapshotMode())
+    const coldAssetRequests = await page.evaluate(() =>
+      (window as Window & { __DSH_TEST_APPLICATION_FETCHES__?: string[] }).__DSH_TEST_APPLICATION_FETCHES__!
+        .filter(path => path.startsWith('/plugins/') && /[?&]rev=/.test(path)
+          || /^\/assets\/[^/]+\.(js|css)$/.test(path)))
+    expect(coldAssetRequests.some(path => path.startsWith('/plugins/'))).toBe(true)
+    expect(coldAssetRequests.some(path => path.startsWith('/assets/'))).toBe(true)
+    await expect.poll(() => page.evaluate(async () => {
+      const cache = await caches.open('dsh-mobile-assets-v1')
+      return (await cache.keys()).map((key) => {
+        const url = new URL(key.url)
+        return url.pathname.replace(/^\/asset-cache\/[^/]+/, '') + url.search
+      })
+    })).toEqual(expect.arrayContaining(coldAssetRequests))
     const reloadedAt = performance.now()
     await page.reload()
-    // Reload deliberately has no private asset cache, so it owns the same cold-boot budget.
+    // Reload serves versioned static assets from the worker's per-pairing cache; private responses still have none.
     try { await client.getByText('MESSAGES_WEB_READY', { exact: true }).waitFor({ timeout: 90000 }) }
     catch {
       throw new Error(JSON.stringify({ stage: 'phone refresh', status: await page.locator('.full-bar').innerText(),
@@ -329,6 +351,18 @@ it.runIf(relayRoot).each([
         frames: await Promise.all(page.frames().map(async frame => frame.locator('body').innerText().then(text => text.slice(0, 1000)).catch(() => 'unavailable'))), errors, diagnostics, missingResources, traffic }))
     }
     console.info(`${name} full-client refresh: ${Math.round(performance.now() - reloadedAt)}ms`)
+    expect(await client.locator('body').evaluate(async () => {
+      const responses: unknown[] = []
+      for (let index = 0; index < 2; index++) {
+        responses.push(await (await fetch('/api/mobile-test.transfer', { method: 'POST', body: 'probe' })).json())
+      }
+      return responses
+    })).toEqual([{ size: 5 }, { size: 5 }])
+    const reloadRequests = await page.evaluate(() =>
+      (window as Window & { __DSH_TEST_APPLICATION_FETCHES__?: string[] }).__DSH_TEST_APPLICATION_FETCHES__!)
+    expect(reloadRequests.filter(path => coldAssetRequests.includes(path))).toEqual([])
+    expect(reloadRequests).toContain('/')
+    expect(reloadRequests.filter(path => path === '/api/mobile-test.transfer')).toHaveLength(2)
     expect(session.snapshotEvents().filter(event => event.type === 'user/message' && event.data.source.kind === 'user')).toHaveLength(1)
     await reopen.click()
     await drawer.locator(`[data-row-key="session:${sessionId}"]`).click()
