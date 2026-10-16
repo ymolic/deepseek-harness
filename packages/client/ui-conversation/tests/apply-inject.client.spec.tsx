@@ -297,6 +297,37 @@ describe('Conversation inject API', () => {
     await b.runtime.dispose()
   })
 
+  it('ignores a View callback after its Session binding is released', async () => {
+    const b = await bench()
+    onTestFinished(() => b.runtime.dispose())
+    const removeChat = b.slots.register(
+      { name: 'conversation.view', id: 'chat' }, (() => null) as never,
+    )
+    onTestFinished(() => { removeChat() })
+    await b.runtime.flush()
+    const header = b.headerApi(ROOT)
+    b.rootReference.release()
+    expect(b.runtime.sessions.binding(ROOT)).toBeUndefined()
+    expect(() => { header.injected.selectView('chat') }).not.toThrow()
+    await b.runtime.ctx.configForms.developerTools.setEnabled(false)
+  })
+
+  it('does not commit a View selection when an active target fails', async () => {
+    const b = await bench()
+    onTestFinished(() => b.runtime.dispose())
+    const removeChat = b.slots.register(
+      { name: 'conversation.view', id: 'chat' }, (() => null) as never,
+    )
+    onTestFinished(() => { removeChat() })
+    await b.runtime.flush()
+    const header = b.headerApi(ROOT)
+    const before = header.instance.store.getSnapshot()
+    vi.spyOn(b.runtime.ctx.uiConversation.binding(ROOT), 'activate')
+      .mockImplementationOnce(() => { throw new Error('target activation failed') })
+    expect(() => { header.injected.selectView('chat') }).toThrow('target activation failed')
+    expect(header.instance.store.getSnapshot()).toBe(before)
+  })
+
   it('restores the selected View when a cached Session becomes Provider-bound', async () => {
     const b = await bench()
     const binding = b.runtime.ctx.uiConversation.binding(ROOT)
