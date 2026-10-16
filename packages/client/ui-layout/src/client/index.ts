@@ -63,7 +63,8 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      * sidebar, register into one of those inner seats instead.
      *
      * The occupant receives the frame's live column state (collapsed, width)
-     * and is expected to render the compact control rail while collapsed.
+     * and renders the compact control rail while collapsed. The frame hides
+     * that rail entirely in phone browsers and macOS/Windows desktop windows.
      */
     'sidebar': { kind: 'single'; scope: 'root'; owner: SidebarOwnerProps }
     /**
@@ -105,12 +106,11 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
     'shell.overlay': { kind: 'list'; scope: 'root' }
     /**
      * Window-chrome seat at the frame's top-left, over every main panel.
-     * Mounted only while the sidebar column is fully hidden (macOS desktop
-     * collapse; other platforms keep the rail), so the occupant can assume the
-     * frame edge is the window edge and the macOS traffic lights sit before it.
+     * Mounted in a separate navigation row on phone browsers, or beside the
+     * traffic lights while the macOS desktop sidebar is fully hidden.
      * OCCUPIED by ui-sidebar's reopen/New Session controls.
      *
-     * While the seat is mounted the frame publishes
+     * While the macOS seat is mounted the frame publishes
      * `--dsh-frame-leading-clearance` (the inline inset the seat's band
      * occupies, measured from the frame's left edge); a main panel whose
      * content reaches the top-left corner pads by it so nothing lands under
@@ -127,9 +127,9 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 
 /** Sidebar owner share: live column state from the frame's concession solve. */
 export interface SidebarOwnerProps {
-  /** True when the sidebar is closed (the column renders the compact control rail). */
+  /** True when closed; the frame may hide the occupant's compact rail entirely. */
   collapsed: boolean
-  /** Rendered column width in px (SIDEBAR_COLLAPSED when collapsed). */
+  /** Rendered sidebar or drawer width in px; zero when fully hidden. */
   width: number
 }
 

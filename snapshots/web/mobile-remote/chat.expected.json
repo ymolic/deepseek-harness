@@ -1,0 +1,10 @@
+[
+  {
+    "role": "user",
+    "text": "只回复 MESSAGES_WEB_READY，不调用工具。"
+  },
+  {
+    "role": "assistant",
+    "text": "MESSAGES_WEB_READY"
+  }
+]

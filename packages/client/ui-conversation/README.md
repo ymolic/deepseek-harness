@@ -66,6 +66,8 @@ The shared image slot props keep display choices separate from durable reference
 
 The composer measures its expanded control groups after size, content, visibility, or font-loading changes. If they cannot share a line, the row sets `--dsh-composer-model-text-display: none` and `--dsh-composer-model-icon-display: block` for the model seat; their defaults are `block` and `none`. Wrapping remains available if even the icon cannot fit.
 
+On coarse-pointer devices, the composer editor and placeholder use at least 16px text and retain any larger content-font preference. Fine-pointer desktop typography is unchanged, and browser zoom remains available.
+
 The context meter follows the [statistics-control radius](../../../docs/ui-radius.md#radius-scale).
 
 The context-occupancy button shows a ring and percentage below the input card, after the Session statistics. Clicking it opens the token breakdown in a panel kept inside the viewport, including when no statistics are shown; the button stays hidden until context usage and capacity are available.
@@ -88,7 +90,7 @@ A blank Session retains the header's leading and corner controls, including the 
 
 View selection is deterministic: a registered persisted selection wins, otherwise registered `chat` wins, otherwise no View renders. It never chooses the first registered View. Shell phase combines Session lifecycle with the active-target set; no target-specific snapshot is read by the shell.
 
-The shell reads the persisted View preference before rendering when a Session first binds or a cached Session becomes current, activates the registered preferred View or Chat fallback, and activates later tab or focus selections before committing them to the store. A blank Session still omits the `conversation.view` slot; no unselected target is activated.
+The shell reads the persisted View preference before rendering when a Session first binds or a cached Session becomes current, activates the registered preferred View or Chat fallback, and activates later tab or focus selections before committing them to the store. Released bindings are excluded from View refreshes; activation failures in current bindings still propagate before a selection commits. A blank Session still omits the `conversation.view` slot; no unselected target is activated.
 
 Active transcripts in the main occurrence expose content-width drag handles in their uncovered side gutters; embedded occurrences omit them. A View that paints into a gutter raises only its concrete painted element above the handle; transparent full-width wrappers stay below so they do not claim empty gutter. This requires the path between that element and the Conversation body to remain outside an intermediate stacking context; the shipped Chromium behavior is pinned by the browser scenario. Chat applies the rule to table elements, while its column-bounded tool cards need no raise. Wheel motion over a handle still scrolls the transcript, while Ctrl+wheel remains a browser zoom gesture. The sticky composer intentionally owns its full footer band, which is not a resize target; an already-captured drag lifts its indicator until release ([handle styles](src/client/skeleton/ConversationRoot.module.css)).
 

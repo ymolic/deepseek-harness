@@ -1,0 +1,16 @@
+# Bilingual-pair consistency record for guide.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/upgrade-guide/v0.2.1-alpha.2/persistent-phone-access/guide.md
+/:
+  en: c0e66a237d6d661e
+  zh: 433d7bd780006507
+/persistent-full-phone-access:
+  en: e3ada7a7e146976c
+  zh: 8ab27e15ac0815f6
+/persistent-full-phone-access/change:
+  en: 1dd9e8e3b9e18bfb
+  zh: 8350c94ed689368a
+/persistent-full-phone-access/migration:
+  en: 3e4703eaa4d89c3f
+  zh: 01b431bde934e645

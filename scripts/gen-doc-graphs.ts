@@ -294,6 +294,13 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'Owns Session commands, cold reads, durable-event following, live control state, model catalogs, workspace opening, and Agent activation policy.',
   },
   {
+    key: 'mobileController',
+    pkg: 'api-mobile-controller',
+    title: 'Session-scoped phone authorization',
+    mode: 'service',
+    note: 'Binds encrypted phone text commands to an explicitly authorized Agent and owns expiry, receipts, and revocation.',
+  },
+  {
     key: 'sessionFileReferences',
     pkg: 'api-session-controller',
     title: 'Session-addressed file-reference Remote adapter',
@@ -855,6 +862,14 @@ const SERVICE_ROLES: ServiceRole[] = [
     mode: 'core',
     consumers: ['harness-dev-context'],
     note: 'The web-runtime row advertises one URL for its Web GUI: the configured publicUrl, otherwise the listener origin; DSH_WEB_URL, the startup URL, and harness-dev-context read the same value.',
+  },
+  {
+    key: 'frontendAssets',
+    pkg: 'host-frontend-static',
+    title: 'Built frontend assets',
+    mode: 'core',
+    consumers: ['api-mobile-controller'],
+    note: 'Serves configured dist assets and rendered bootstrap HTML to carriers that already authenticate full-instance access.',
   },
   {
     key: 'clientModules',

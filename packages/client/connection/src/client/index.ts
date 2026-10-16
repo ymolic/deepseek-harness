@@ -99,9 +99,9 @@ export interface ClientTransportHooks {
    */
   loadBundle?(url: string): Promise<void>
   /**
-   * The transport owner declares the page owns the Host outright: the Host
-   * runs inside a worker this page spawned, so no other party can reach it and
-   * the loopback stand-in for "the owner's own machine" is vacuous.
+   * The transport owner declares operator access to the whole Host. A local
+   * worker belongs to its spawning page; a paired remote carrier must obtain
+   * explicit instance-wide consent before exposing this privilege.
    * `ctx.connection.isLoopback` then reports the privileged surface reachable
    * regardless of the page authority. Only a shell that assembles its own
    * transport can set this; served pages never carry the global at all.

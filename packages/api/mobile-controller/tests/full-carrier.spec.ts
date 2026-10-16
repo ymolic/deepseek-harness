@@ -1,0 +1,45 @@
+import { gunzipSync } from 'node:zlib'
+import { Context } from '@deepseek-ai/cordis'
+import type { PeerScope } from '@deepseek-ai/dsh-typert-protocol'
+import { expect, it } from 'vitest'
+import { FullCarrier } from '../src/full-carrier.ts'
+import { isRecord } from '../src/protocol.ts'
+
+/** The paths under test forward the Peer without reading more than its caller identity. */
+const peer = { principal: { kind: 'owner' } } as PeerScope
+
+it.each([
+  ['/assets/client.js', 'text/javascript', 200, true],
+  ['/assets/client.css', 'text/css', 200, true],
+  ['/assets/client.svg', 'image/svg+xml', 200, true],
+  ['/assets/range.js', 'text/javascript', 206, false],
+  ['/', 'text/html', 200, false],
+  ['/state.json', 'application/json', 200, false],
+])('streams %s without compressing private documents or partial responses', async (url, contentType, status, compressed) => {
+  const ctx = new Context()
+  const source = Array.from({ length: 40000 }, (_, index) =>
+    `const entry${index} = "${(index * 2654435761 >>> 0).toString(16)}";\n`).join('')
+  ctx.provide('frontendAssets', { fetch: async () => new Response(source, { status, headers: { 'content-type': contentType } }) })
+  const frames: Record<string, unknown>[] = []
+  let finish!: () => void
+  const ended = new Promise<void>((resolve) => { finish = resolve })
+  const carrier = new FullCarrier(ctx, async (value) => {
+    if (!isRecord(value)) throw new Error('expected response frame')
+    frames.push(value)
+    if (value.type === 'response' || value.type === 'body') {
+      queueMicrotask(() => { carrier.accept({ type: 'response-pull', id: 'compression-test-0001' }) })
+    }
+    if (value.type === 'end') finish()
+  }, peer)
+  try {
+    carrier.accept({ type: 'fetch', id: 'compression-test-0001', url, method: 'GET', headers: {} })
+    await ended
+    expect(frames[0]?.compression).toBe(compressed ? 'gzip' : undefined)
+    const bytes = Buffer.concat(frames.filter(frame => frame.type === 'body').map(frame => Buffer.from(String(frame.data), 'base64url')))
+    expect((compressed ? gunzipSync(bytes) : bytes).toString() === source).toBe(true)
+    if (compressed) {
+      expect(bytes.length).toBeLessThan(Buffer.byteLength(source) / 2)
+      expect(frames.filter(frame => frame.type === 'body')).toHaveLength(Math.ceil(bytes.length / (192 * 1024)))
+    }
+  } finally { await carrier.settled(); await ctx.fiber.dispose() }
+})

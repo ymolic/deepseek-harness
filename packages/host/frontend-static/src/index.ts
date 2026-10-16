@@ -26,6 +26,23 @@ export const name = 'frontend-static'
 /** Services required before the authenticated fallback seat can be claimed. */
 export const inject = ['webServer', 'connection']
 
+declare module '@deepseek-ai/cordis' {
+  interface Context {
+    /** Application assets for already-authenticated non-HTTP carriers. */
+    frontendAssets: FrontendAssets
+  }
+}
+
+/** Built application assets for carriers that have already authenticated instance access. */
+export interface FrontendAssets {
+  /**
+   * Read a dist asset or render the application bootstrap document.
+   * @param request - application-relative GET or HEAD request, never an arbitrary filesystem path.
+   * @returns asset response, 403 for traversal, 404 for absent files, or 405 for unsupported methods.
+   */
+  fetch(request: Request): Promise<Response>
+}
+
 /** Plugin config: the dist anchor. */
 export interface Config {
   /** Absolute path of index.html inside the dist root. */
@@ -118,6 +135,24 @@ export function apply(ctx: Context, config: Config): void {
     const body = ctx.webServer.renderIndex(await readFile(distIndex, 'utf8'))
     return body.replace(/<head(?:\s[^>]*)?>/i, open => `${open}<base href="./">`)
   }
+  ctx.provide('frontendAssets', {
+    async fetch(request: Request): Promise<Response> {
+      if (!['GET', 'HEAD'].includes(request.method)) return new Response(null, { status: 405 })
+      const pathname = decodeURIComponent(new URL(request.url).pathname)
+      const target = resolve(normalize(join(distRoot, pathname)))
+      if (target !== distRoot && !target.startsWith(distRoot + sep)) return new Response(null, { status: 403 })
+      try {
+        const index = target === distRoot || target === distIndex
+        const body = index ? await renderIndex() : new Uint8Array(await readFile(target))
+        return new Response(request.method === 'HEAD' ? null : body, {
+          headers: { 'content-type': index ? HTML_MIME : MIME[extname(target)] ?? 'application/octet-stream' },
+        })
+      } catch (error) {
+        if (STATIC_MISS_CODES.has((error as NodeJS.ErrnoException).code)) return new Response(null, { status: 404 })
+        throw error
+      }
+    },
+  })
   ctx.effect(() => ctx.webServer.registerFallback(async (req, res) => {
     // Non-GET/HEAD without a matching named route is 405 (fallback-only
     // semantics: named routes own their method handling).

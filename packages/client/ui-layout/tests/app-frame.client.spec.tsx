@@ -3,13 +3,14 @@
 import type { GlobalStandardProps, RenderOpts } from '@deepseek-ai/dsh-client-ui-slots'
 import { allowAllAccess, bindSnapshotSelector } from '@deepseek-ai/dsh-client-test-runtime'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, cleanup, render } from '@testing-library/react'
+import { act, cleanup, fireEvent, render } from '@testing-library/react'
 import { AppFrame } from '../src/client/AppFrame.tsx'
 import type { AppFrameProps } from '../src/client/AppFrame.tsx'
 import type { MainPanelId, RightbarOwnerProps, SidebarOwnerProps } from '../src/client/index.ts'
 import { createLayoutStore } from '../src/client/stores.ts'
 import type { WorkspaceSnapshot } from '@deepseek-ai/dsh-api-workspace-controller/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
+import { Modal } from '@deepseek-ai/dsh-client-ui-primitives'
 
 const useResource = (() => ({ status: 'none' as const, value: undefined, failure: undefined })) as GlobalStandardProps['useResource']
 let selectedSession: SessionId | undefined
@@ -66,7 +67,11 @@ function mountFrame(windowWidth = frameWidth) {
   const slotCalls: { key: string; props: object; options: RenderOpts | undefined }[] = []
   const renderSlot: AppFrameProps['renderSlot'] = (key, owner, options) => {
     slotCalls.push({ key, props: owner, options })
-    return <div data-testid={`${key}-content`} data-entry-key={options?.entryKey} />
+    return <div data-testid={`${key}-content`} data-entry-key={options?.entryKey}>
+      {(key === 'sidebar' || key === 'shell.leading') && (
+        <button type="button" onClick={() => { instance.actions.toggleSidebar() }}>Toggle sidebar</button>
+      )}
+    </div>
   }
   const useSessions: AppFrameProps['useSessions'] = sel => sel({
     ids: selectedSession === undefined ? [] : [selectedSession],
@@ -291,6 +296,61 @@ describe('AppFrame', () => {
 })
 
 describe('AppFrame normal width concessions', () => {
+  it('gives phones the full center width and keeps a reachable reopen control', () => {
+    frameWidth = 390
+    const { frame, sidebarOwner, getByTestId } = mountFrame()
+    expect(tracks(frame)).toEqual([0, 0])
+    expect(sidebarOwner()).toEqual({ collapsed: true, width: 0 })
+    expect(getByTestId('sidebar-content').parentElement?.hasAttribute('inert')).toBe(true)
+    expect(getByTestId('shell.leading-content').querySelector('button')).not.toBeNull()
+  })
+
+  it('opens a phone drawer without shrinking the center and restores focus after Escape or outside dismissal', () => {
+    frameWidth = 390
+    const { frame, getByTestId, getByRole, queryByRole, sidebarOwner } = mountFrame()
+    const reopen = getByTestId('shell.leading-content').querySelector('button')!
+    reopen.focus()
+    expect(document.activeElement).toBe(reopen)
+    fireEvent.click(reopen)
+    expect(reopen.isConnected).toBe(true)
+    const drawer = getByRole('dialog', { name: 'navigation' })
+    expect(drawer.contains(document.activeElement)).toBe(true)
+    expect(tracks(frame)).toEqual([0, 0])
+    expect(sidebarOwner()).toEqual({ collapsed: false, width: 280 })
+    expect(getByTestId('main-content').parentElement?.getAttribute('aria-hidden')).toBe('true')
+    expect(frame.querySelector('[data-side="sidebar"]')).toBeNull()
+    fireEvent.keyDown(document.activeElement!, { key: 'Escape' })
+    expect(queryByRole('dialog')).toBeNull()
+    expect(document.activeElement?.closest('[data-testid]')?.getAttribute('data-testid')).toBe('shell.leading-content')
+    expect(document.activeElement).toBe(reopen)
+    fireEvent.click(reopen)
+    fireEvent.click(frame.querySelector('[data-sidebar-backdrop]')!)
+    expect(queryByRole('dialog')).toBeNull()
+    expect(document.activeElement).toBe(reopen)
+  })
+
+  it('keeps nested modals above the phone drawer and restores the wide preference on resize', () => {
+    frameWidth = 390
+    const { frame, instance, getByRole, sidebarOwner, queryByTestId } = mountFrame()
+    act(() => { instance.actions.setSidebar(420); instance.actions.toggleSidebar() })
+    const drawer = getByRole('dialog')
+    expect(sidebarOwner()).toEqual({ collapsed: false, width: 342 })
+    const closeNested = vi.fn()
+    const nested = render(<Modal open onClose={closeNested} title="Nested" closeLabel="Close" />)
+    try {
+      fireEvent.keyDown(getByRole('dialog', { name: 'Nested' }), { key: 'Escape' })
+      expect(closeNested).toHaveBeenCalledOnce()
+      expect(drawer.isConnected).toBe(true)
+      expect(instance.getSnapshot().layoutInfo.narrowExpanded).toBe(true)
+    } finally { nested.unmount() }
+    resize(800)
+    expect(tracks(frame)).toEqual([56, 0])
+    expect(queryByTestId('shell.leading-content')).toBeNull()
+    expect(frame.querySelector('[inert]')).toBeNull()
+    resize(1920)
+    expect(tracks(frame)).toEqual([420, 0])
+  })
+
   it('measures the frame, not the window, before choosing the first-open preference', () => {
     frameWidth = 1000
     const { instance, rightOwner } = mountFrame(1920)
@@ -319,7 +379,7 @@ describe('AppFrame normal width concessions', () => {
     expect(instance.getSnapshot().layoutInfo).toMatchObject({ rightbarShown: true, rightbar: 864 })
     act(() => { instance.actions.closeRightbar() })
     resize(455)
-    expect(tracks(frame)).toEqual([56, 0])
+    expect(tracks(frame)).toEqual([0, 0])
     resize(1920)
     expect(tracks(frame)).toEqual([420, 0])
   })

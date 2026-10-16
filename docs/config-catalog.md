@@ -214,6 +214,37 @@ export interface Config {
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-api-job-controller -->
 
+<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-api-mobile-controller -->
+<a id="deepseek-aidsh-api-mobile-controller"></a>
+
+## `@deepseek-ai/dsh-api-mobile-controller`
+
+- `inject`: `agents` · `sessionController` · `sessionProjections` · `credentials` · `workspaceRegistry` · `connection` · `typertGateway` · `clientModules` · `frontendAssets`
+- `source`: [`packages/api/mobile-controller/src/index.ts:41`](../packages/api/mobile-controller/src/index.ts)
+
+```ts config-catalog
+/** Relay deployment settings; authorizationMs and projection limits apply only to legacy text grants. */
+export interface Config {
+  /** Allow explicit desktop authorization; disabled instances create no relay connections. */
+  readonly enabled: boolean
+  /** Trusted relay's exact HTTPS origin; loopback HTTP is accepted for local tests. */
+  readonly relayOrigin: string
+  /** Credential-store key for the separately provisioned desktop identity. */
+  readonly credential: string
+  /** Grant duration in milliseconds, capped by the relay's remaining authorization. */
+  readonly authorizationMs: number
+  /** Deadline in milliseconds for control requests and WebSocket handshakes. */
+  readonly requestTimeoutMs: number
+  /** Maximum unacknowledged full-client download fragments; 1-32, independent of phone uploads. */
+  readonly fullFragmentWindow: number
+  /** Periodic interval in milliseconds for coalescing changed text into replacement snapshots. */
+  readonly flushMs: number
+  /** Maximum UTF-8 bytes of recent conversation text retained for the phone. */
+  readonly historyBytes: number
+}
+```
+<!-- END GENERATED config-catalog:@deepseek-ai/dsh-api-mobile-controller -->
+
 <!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-api-session-controller -->
 <a id="deepseek-aidsh-api-session-controller"></a>
 
@@ -530,6 +561,22 @@ export interface Config {
 }
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-client-shortcuts -->
+
+<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-client-ui-mobile-remote -->
+<a id="deepseek-aidsh-client-ui-mobile-remote"></a>
+
+## `@deepseek-ai/dsh-client-ui-mobile-remote`
+
+- `source`: [`packages/client/ui-mobile-remote/src/config.ts:5`](../packages/client/ui-mobile-remote/src/config.ts)
+
+```ts config-catalog
+/** Client status refresh policy. */
+export interface Config {
+  /** Interval in milliseconds between nonoverlapping authorization status reads. */
+  readonly pollMs: number
+}
+```
+<!-- END GENERATED config-catalog:@deepseek-ai/dsh-client-ui-mobile-remote -->
 
 <!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-client-ui-plugin-manager -->
 <a id="deepseek-aidsh-client-ui-plugin-manager"></a>
@@ -1562,7 +1609,7 @@ export interface Config {
 ## `@deepseek-ai/dsh-host-frontend-static`
 
 - `inject`: `webServer` · `connection`
-- `source`: [`packages/host/frontend-static/src/index.ts:30`](../packages/host/frontend-static/src/index.ts)
+- `source`: [`packages/host/frontend-static/src/index.ts:47`](../packages/host/frontend-static/src/index.ts)
 
 ```ts config-catalog
 /** Plugin config: the dist anchor. */

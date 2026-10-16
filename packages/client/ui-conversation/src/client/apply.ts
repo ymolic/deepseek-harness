@@ -218,8 +218,10 @@ export function apply(ctx: Context, config: Config = Config({})): void {
     return tabs
   }
   const activateView = (sessionId: SessionId, preferred: string | null): void => {
+    const binding = sessions.binding(sessionId)
+    if (binding === undefined) return
     const active = resolveActiveView(viewTabs(), preferred)
-    if (active !== undefined) uiConversation.binding(sessionId).activate(active.id)
+    if (active !== undefined) uiConversation.binding(binding).activate(active.id)
   }
   const restoreView = (sessionId: SessionId): void => {
     activateView(sessionId, readConversationViewPreference(sessionId))
@@ -242,7 +244,13 @@ export function apply(ctx: Context, config: Config = Config({})): void {
         return candidate !== undefined && tab.id === candidate.id && tab.label === candidate.label
       })
     if (!unchanged) conversationViews.set(next)
-    for (const binding of bindings) restoreView(binding.sessionId)
+    for (const binding of bindings) {
+      if (sessions.binding(binding.sessionId) !== binding) {
+        bindings.delete(binding)
+        continue
+      }
+      restoreView(binding.sessionId)
+    }
   }
   ctx.effect(() => {
     const disposeViews = slots.subscribe('conversation.view', refreshViews)

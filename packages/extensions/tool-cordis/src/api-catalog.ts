@@ -1108,6 +1108,19 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'frontendAssets',
+    summary: 'Built application assets for carriers that have already authenticated instance access.',
+    description: 'Built application assets for carriers that have already authenticated instance access.',
+    methods: [
+      {
+        signature: 'fetch(request: Request): Promise<Response>',
+        description: 'Read a dist asset or render the application bootstrap document.',
+        parameters: [{ name: 'request', description: 'application-relative GET or HEAD request, never an arbitrary filesystem path.' }],
+        returns: 'asset response, 403 for traversal, 404 for absent files, or 405 for unsupported methods.',
+      },
+    ],
+  },
+  {
     key: 'fs',
     summary: 'Abstract filesystem provider.',
     description: 'Abstract filesystem provider. Targets must preserve identity across aliases; reads expose regular UTF-8 text or typed errors, listings are stable and content-free, and mutations are atomic. Optional guards add stale protection without changing the unguarded provider contract.',
@@ -1581,6 +1594,32 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'Delete one item after checking its version; absence succeeds without an event.',
         parameters: [{ name: 'request', description: 'Session, message, and observed item version.' }],
         returns: 'the stable absent postcondition or an explicit failure.',
+      },
+    ],
+  },
+  {
+    key: 'mobileController',
+    summary: 'Authenticated operator controls for enrollment and manual device revocation.',
+    description: 'Authenticated operator controls for enrollment and manual device revocation.',
+    methods: [
+      {
+        signature: '@Remote status(): MobileDesktopState',
+        description: 'Read enrollment and connection state for the authenticated operator.',
+        parameters: [],
+        returns: 'state with transient QR material only while enrollment is pending; never log it.',
+      },
+      {
+        signature: '@Remote start(request: MobileStartRequest): Promise<MobileStartResult>',
+        description: 'Authorize the full instance, or a legacy Session grant when no full-device trust exists.',
+        parameters: [{ name: 'request', description: 'explicit instance consent or legacy Session selection and tool acknowledgement.' }],
+        returns: 'a short-lived QR URL; keep it only in the desktop\'s transient view state.',
+        throws: ['when disabled, already starting, revoked state is uncertain, or the selected Session cannot be used.'],
+      },
+      {
+        signature: '@Remote async stop(): Promise<MobileDesktopState>',
+        description: 'Stop local admission synchronously, then revoke the relay room.',
+        parameters: [],
+        returns: 'state distinguishing confirmed server revocation from an unknown network outcome.',
       },
     ],
   },
@@ -6212,6 +6251,22 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'MessageSourceMap',
     declaration: 'export interface MessageSourceMap {\n    user: {\n        kind: \'user\';\n    };\n    model: ModelMessageSource;\n    tool: ToolMessageSource;\n    \'system-prompt\': SystemPromptMessageSource;\n}',
+  },
+  {
+    name: 'MobileDesktopState',
+    declaration: 'export interface MobileDesktopState {\n    readonly scope?: \'instance\';\n    readonly mobileOnline?: boolean;\n    readonly phase: \'disabled\' | \'stopped\' | \'starting\' | \'waiting\' | \'paired\' | \'reconnecting\' | \'expired\' | \'failed\';\n    readonly sessionId: SessionId | null;\n    readonly title: string;\n    readonly expiresAt: number | null;\n    readonly ticketExpiresAt: number | null;\n    readonly relayRevoked: boolean;\n    readonly pairingUrl?: string | undefined;\n}',
+  },
+  {
+    name: 'MobileSessionStartRequest',
+    declaration: 'export interface MobileSessionStartRequest {\n    readonly sessionId: SessionId;\n    readonly acknowledgeTools: true;\n    readonly allowWorkspaceRoaming?: boolean;\n}',
+  },
+  {
+    name: 'MobileStartRequest',
+    declaration: 'export type MobileStartRequest = MobileSessionStartRequest | {\n    readonly scope: \'instance\';\n    readonly acknowledgeTools: true;\n};',
+  },
+  {
+    name: 'MobileStartResult',
+    declaration: 'export interface MobileStartResult {\n    readonly pairingUrl: string;\n    readonly state: MobileDesktopState;\n}',
   },
   {
     name: 'ModDefinition',

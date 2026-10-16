@@ -1,0 +1,58 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "lib/types"
+  },
+  "include": [
+    "src"
+  ],
+  "references": [
+    { "path": "../gateway/tsconfig.host.json" },
+    { "path": "../../client/connection/tsconfig.host.json" },
+    { "path": "../../client/modules" },
+    { "path": "../../host/frontend-static" },
+    {
+      "path": "../../../vendor/cordis"
+    },
+    {
+      "path": "../../../vendor/schemastery"
+    },
+    {
+      "path": "../../core/agent"
+    },
+    {
+      "path": "../../core/session"
+    },
+    {
+      "path": "../../session/session-projection"
+    },
+    {
+      "path": "../../session/session-title"
+    },
+    {
+      "path": "../../interaction/user-questions"
+    },
+    {
+      "path": "../../interaction/user-approval"
+    },
+    {
+      "path": "../session-controller/tsconfig.host.json"
+    },
+    {
+      "path": "../../credentials/credentials"
+    },
+    {
+      "path": "../../llm/llm"
+    },
+    {
+      "path": "../../util/brand"
+    },
+    {
+      "path": "../../workspace/workspace"
+    },
+    {
+      "path": "../../typert/protocol"
+    }
+  ]
+}
