@@ -1301,12 +1301,24 @@ importers:
       '@deepseek-ai/dsh-agent':
         specifier: workspace:*
         version: link:../../core/agent
+      '@deepseek-ai/dsh-api-gateway':
+        specifier: workspace:*
+        version: link:../gateway
       '@deepseek-ai/dsh-api-session-controller':
         specifier: workspace:*
         version: link:../session-controller
       '@deepseek-ai/dsh-brand':
         specifier: workspace:*
         version: link:../../util/brand
+      '@deepseek-ai/dsh-client-connection':
+        specifier: workspace:*
+        version: link:../../client/connection
+      '@deepseek-ai/dsh-client-modules':
+        specifier: workspace:*
+        version: link:../../client/modules
+      '@deepseek-ai/dsh-host-frontend-static':
+        specifier: workspace:*
+        version: link:../../host/frontend-static
       '@deepseek-ai/dsh-session':
         specifier: workspace:*
         version: link:../../core/session

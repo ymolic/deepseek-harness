@@ -3,23 +3,23 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/client/ui-mobile-remote/README.md
 /:
-  en: 6586873cb6e51817
-  zh: c7eacbfac29e12e0
+  en: 5b1bbbf31d394dea
+  zh: 49ba386587d4dc43
 /deepseek-ai-dsh-client-ui-mobile-remote:
   en: 95480ae6d5c4109f
   zh: bd3606ec0eaf0a2b
 /deepseek-ai-dsh-client-ui-mobile-remote/summary:
-  en: 98f909849813f0b9
-  zh: 98afff8bb5b104c9
+  en: 215f7d8e451fcb87
+  zh: 52a8f3a551ae5959
 /deepseek-ai-dsh-client-ui-mobile-remote/table-of-contents:
   en: 23386452a66b2fbd
   zh: 4cf93c4bf17b3da2
 /deepseek-ai-dsh-client-ui-mobile-remote/use-this-package:
-  en: 4569bb9a9424acbb
-  zh: 5692f7f1fb14d49b
+  en: 9e22fa878d4f2fc0
+  zh: df2061f6b560593e
 /deepseek-ai-dsh-client-ui-mobile-remote/understand-the-implementation:
-  en: 9083d607f8aed646
-  zh: dba00105e1077424
+  en: bbd732886e414d1c
+  zh: e82b61578a904087
 /deepseek-ai-dsh-client-ui-mobile-remote/further-exploration:
   en: f3cd758fd5d9fcfb
   zh: c3ec83ef1346121c
@@ -30,8 +30,8 @@
   en: 5cc4b0d953f82359
   zh: 70e04d5012c523d3
 /deepseek-ai-dsh-client-ui-mobile-remote/known-limitations-and-deferred-work:
-  en: 4edd44b8363976c1
-  zh: 53024ea5240ec8f0
+  en: 773ce127d4a3ee63
+  zh: 923c65e8cf6b3308
 /deepseek-ai-dsh-client-ui-mobile-remote/known-limitations-and-deferred-work/dev-note:
-  en: 9ee0548c39ed31bb
-  zh: ecd037fb5f620386
+  en: 57b60c19805581b3
+  zh: 0fb2fd8e7018eade

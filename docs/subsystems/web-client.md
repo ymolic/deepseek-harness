@@ -27,9 +27,9 @@ The Web boot kernel creates the module system, prefetches `immediately` entries,
 
 ## Remote communication
 
-[Phone control](../../packages/api/mobile-controller/README.md) uses authenticated desktop Remote calls only for authorization UI. Its phone channel terminates in a restricted Host executor bound to one Agent; it never forwards the operator's generic Remote namespace. [The desktop menu](../../packages/client/ui-mobile-remote/README.md) owns transient QR presentation and distinguishes closing the dialog from stopping authorization.
+[Phone control](../../packages/api/mobile-controller/README.md) pairs the existing Web client through an encrypted outbound carrier after explicit instance-wide consent. The Host dispatches registered application APIs, Gateway streams and assets, not arbitrary network destinations; Session execution permissions remain unchanged. [The desktop menu](../../packages/client/ui-mobile-remote/README.md) owns transient QR presentation and distinguishes closing the dialog from forgetting a trusted device. A bounded Session text executor remains for legacy compatibility.
 
-`MobileStartRequest` carries the selected `sessionId` and an affirmative tool-permission acknowledgement. `MobileStartResult` returns transient pairing material with `MobileDesktopState`; only the latter is safe for ordinary status reads. That state reports the authorization phase, selected Session, deadlines, and whether the relay confirmed revocation. The [type declarations](../../packages/api/mobile-controller/src/types.ts) own these fields.
+`MobileStartRequest` carries explicit instance consent or a legacy Session selection. `MobileStartResult` returns transient pairing material with `MobileDesktopState`; while enrollment is pending, desktop status may also contain the QR URL and must not be logged. Paired state reports connection availability and relay revocation without continuing to expose the QR. The [type declarations](../../packages/api/mobile-controller/src/types.ts) own these fields.
 
 Host business services annotate callable methods with Typert Remote decorators. Host generation emits strict descriptors, runtime codecs, declaration merges, and source maps. The Client-side `api-remotes` assembly selects those generated contributions and mounts concrete methods under `ctx.remote.<namespace>` and Session-scoped `agentCtx.remote.<namespace>`. Feature packages depend on the generated service face, not the Gateway implementation or a Host package's runtime entry.
 
@@ -115,18 +115,18 @@ Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnp
 
 ### `ctx.mobileController` — `MobileController`
 
-Only the authenticated desktop receives these Remote controls. Phone execution never dispatches Remote methods.
+Authenticated operator controls for enrollment and manual device revocation.
 
 ```ts cordis-catalog
 /**
- * Read the current authorization without exposing private pairing material.
- * @returns authorization state without credentials or QR material.
+ * Read enrollment and connection state for the authenticated operator.
+ * @returns state with transient QR material only while enrollment is pending; never log it.
  */
 @Remote status(): MobileDesktopState
 
 /**
- * Explicitly authorize one existing, ordinary, unarchived Session.
- * @param request - desktop selection and acknowledgement that messages may use existing tools.
+ * Authorize the full instance, or a legacy Session grant when no full-device trust exists.
+ * @param request - explicit instance consent or legacy Session selection and tool acknowledgement.
  * @returns a short-lived QR URL; keep it only in the desktop's transient view state.
  * @throws when disabled, already starting, revoked state is uncertain, or the selected Session cannot be used.
  */

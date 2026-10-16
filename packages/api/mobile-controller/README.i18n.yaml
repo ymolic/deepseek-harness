@@ -3,35 +3,35 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/api/mobile-controller/README.md
 /:
-  en: 53f422a1ef36e8d8
-  zh: ecc457cf95061fc9
+  en: ad196f15550d4c61
+  zh: 5873cbfa649fc930
 /deepseek-ai-dsh-api-mobile-controller:
   en: 43b8552039ba1065
   zh: 260fc7607e6d1e6a
 /deepseek-ai-dsh-api-mobile-controller/summary:
-  en: c26f54ef6e6ad83f
-  zh: 9f13d382eab5256b
+  en: 23dfa59e7b71e20c
+  zh: 1f7d474bf917013e
 /deepseek-ai-dsh-api-mobile-controller/table-of-contents:
   en: 23386452a66b2fbd
   zh: 4cf93c4bf17b3da2
 /deepseek-ai-dsh-api-mobile-controller/use-this-package:
-  en: 8fade5fd5a9a0a43
-  zh: 651a30ec89b08a54
+  en: e7ceba68fb60261c
+  zh: af8d2ce7fd4f8cee
 /deepseek-ai-dsh-api-mobile-controller/understand-the-implementation:
-  en: 438f342830336415
-  zh: 9e198be2a341ea5a
+  en: 77490e37552a1ca1
+  zh: 1a437fd087f57a4a
 /deepseek-ai-dsh-api-mobile-controller/further-exploration:
-  en: 31f3386a541ccd4c
-  zh: f1b5dc6e1f04dbda
+  en: f222a2c6a56b5334
+  zh: cc29df222edeee5a
 /deepseek-ai-dsh-api-mobile-controller/model-experience:
   en: 9c8d030cf587eede
   zh: 6661c5f2c8785f85
 /deepseek-ai-dsh-api-mobile-controller/model-experience/kv-cache-effect:
-  en: d5485dbc7affa23c
-  zh: 96b7de8587de85a9
+  en: 8e9ded057c7472c5
+  zh: d20519c2ec09e109
 /deepseek-ai-dsh-api-mobile-controller/known-limitations-and-deferred-work:
-  en: 4339a9b98fdc8bd8
-  zh: 796505a0b61d8992
+  en: 5079e9a953b51f09
+  zh: 4599af3914cec074
 /deepseek-ai-dsh-api-mobile-controller/known-limitations-and-deferred-work/dev-note:
-  en: 9613ea694039d473
-  zh: 3534b4435e755c67
+  en: ffe37bd55e033eb1
+  zh: 25978cf310cc17a0

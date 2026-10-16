@@ -1,5 +1,5 @@
 ---
-description: "桌面更多菜单与手机控制的明确 Session 授权，涵盖私密二维码显示、刷新、停止和可恢复错误。"
+description: "Web 与 Desktop 的整实例手机授权控件，涵盖私密二维码、持久设备状态和明确撤销。"
 kind: "package-reference"
 ---
 
@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-「更多 → 手机远控」让桌面操作者选择一个 Session（会话），确认其已有工具权限，并显示本地生成的一次性二维码。授权在 Host 中执行；此 Client 仅负责临时展示。
+「更多 → 手机远控」将受信任手机与整个 DSH 实例配对，无需选择 Session（会话）。本地生成的二维码在配对后消失。弹窗显示连接状态并允许操作者忘记设备，关闭它不会撤销信任。
 
 ## 目录
 
@@ -23,9 +23,9 @@ kind: "package-reference"
 <a id="use-this-package"></a>
 ## 使用此包
 
-Web 应用 bundle 包含该插件；UI 仅在 Desktop 中启用。配置 [Host 控制器](../../api/mobile-controller/README.zh.md)，打开「更多 → 手机远控」，选择已有 Session，并确认消息可以使用其当前工具。用手机相机扫描二维码，打开可信的手机页面。缺少中继配置时会在弹窗中显示。
+Web 应用 bundle 为 Web 和 Desktop 提供此插件。配置 [Host 控制器](../../api/mobile-controller/README.zh.md)，打开「更多 → 手机远控」，确认整实例操作者访问。会话执行权限保持不变。用手机相机扫描二维码，打开可信手机页面。缺少中继配置时会在弹窗中显示。
 
-关闭仅隐藏弹窗，授权仍然有效。刷新二维码先撤销旧手机及票据，再创建新授权。停止远控取消正在准备的授权并停止访问。服务器撤销失败时保留可见提示和停止操作，以便重试。过期二维码会从视图中清除；配对手机不会延长授权期限。
+关闭仅隐藏弹窗，设备信任跨重启保留。配对前，刷新二维码先撤销上一轮配对，再创建新配对。配对后弹窗移除二维码和刷新操作。忘记设备取消配对并停止访问。服务器删除未确认时持续显示可重试提示。配对票据过期不会使已配对设备过期。
 
 <a id="understand-the-implementation"></a>
 ## 理解实现
@@ -33,7 +33,7 @@ Web 应用 bundle 包含该插件；UI 仅在 Desktop 中启用。配置 [Host �
 <details>
 <summary>实现细节 — 点击展开</summary>
 
-插件向 `settings.launcher.actions` 注册标准菜单行，并向 `shell.overlay` 注册共享状态弹窗。文案由 locale 管理，界面使用已有基础组件和 Session 目录。模型串行读取状态，抑制变更操作之后到达的过时响应，并在卸载时释放轮询和私密二维码数据。它在启用时捕获生成的 Remote 命名空间。二维码库使用浏览器专属入口，避免将 Node 文件写入模块带入 Client bundle。
+插件向 `settings.launcher.actions` 注册标准菜单行，并向 `shell.overlay` 注册共享状态弹窗。文案由 locale 管理，界面使用已有基础组件。模型串行读取状态，抑制变更操作之后到达的过时响应，并在卸载时释放轮询和私密二维码数据。它在启用时捕获生成的 Remote 命名空间。二维码库使用浏览器专属入口，避免将 Node 文件写入模块带入 Client bundle。
 
 </details>
 
@@ -55,10 +55,10 @@ Web 应用 bundle 包含该插件；UI 仅在 Desktop 中启用。配置 [Host �
 
 <a id="known-limitations-and-deferred-work"></a>
 
-- 二维码是私密临时材料，Client 重载后不可恢复；需刷新授权以获得新码。不得在截图或诊断信息中包含有效二维码。
-- 此界面不支持手机审批、附件、终端或工作区管理。
+- 二维码是私密配对材料，不得包含在截图或诊断信息中；已配对状态不得重新渲染二维码。
+- 此弹窗管理信任；完整手机 Web 客户端负责会话、审批、附件、终端和工作区交互。
 
 <a id="dev-note"></a>
 ### 开发备注
 
-[授权决策](../../../.agents/notes/implemented/architecture/2026-10-15-session-scoped-mobile-control.zh.md) 记录范围和生命周期要求。
+[授权决策](../../../.agents/notes/implemented/architecture/2026-10-15-persistent-full-mobile-client.zh.md) 记录范围和生命周期要求。

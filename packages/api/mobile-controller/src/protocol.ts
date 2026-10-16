@@ -70,6 +70,21 @@ export function mobileRequest(value: unknown): MobileRequest | undefined {
     if (exact(value, ['type', 'channel', 'sessionId'])) return { type: value.type, channel, sessionId: value.sessionId as SessionId }
     return
   }
+  if (value.type === 'session:rename') {
+    if (typeof value.sessionId !== 'string' || value.sessionId.length === 0 || value.sessionId.length > 128) return
+    if (typeof value.title !== 'string' || value.title.trim().length === 0 || Buffer.byteLength(value.title) > 200) return
+    if (exact(value, ['type', 'channel', 'sessionId', 'title'])) {
+      return { type: 'session:rename', channel, sessionId: value.sessionId as SessionId, title: value.title.trim() }
+    }
+    return
+  }
+  if (value.type === 'session:archive' || value.type === 'session:pin' || value.type === 'session:unpin') {
+    if (typeof value.sessionId !== 'string' || value.sessionId.length === 0 || value.sessionId.length > 128) return
+    if (exact(value, ['type', 'channel', 'sessionId'])) {
+      return { type: value.type, channel, sessionId: value.sessionId as SessionId }
+    }
+    return
+  }
   if (value.type === 'approval:respond') {
     if (typeof value.requestId !== 'string' || value.requestId.length === 0 || value.requestId.length > 128 || typeof value.approved !== 'boolean') return
     if (exact(value, ['type', 'channel', 'requestId', 'approved'])) return { type: 'approval:respond', channel, requestId: value.requestId, approved: value.approved }

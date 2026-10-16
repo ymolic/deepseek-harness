@@ -30,7 +30,7 @@ A new account-model sign-in-required event displays “Model unavailable. Please
 
 The launcher exposes the root-list slot `settings.launcher.actions` inside its standard menu. Contributions receive `onDismiss` and use menu primitives to close the owning menu before opening their own UI. The [phone control plugin](../ui-mobile-remote/README.md) contributes through this slot.
 
-The client activates only inside Desktop, identified by its preload bridge. Plain Web clients keep the standard Settings launcher and API-key onboarding without account login, account settings, or an account-state subscription.
+The client loads its account implementation and onboarding artwork asynchronously only inside Desktop, identified by its preload bridge. Plain Web clients download neither and keep the standard Settings launcher and API-key onboarding without account login, account settings, or an account-state subscription. The Loader reports a failed Desktop module load; unloading during that load prevents late account registration.
 
 The sidebar and Account settings display circular profile images with diameters of 24px and 32px respectively, with the account icon as fallback when the URL is absent or the image fails to load. The collapsed sidebar centers the avatar in a 36 × 36 px button. Before sign-in the sidebar launcher shows a More row instead, leading with the ellipsis glyph.
 

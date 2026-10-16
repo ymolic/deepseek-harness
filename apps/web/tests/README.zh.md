@@ -14,6 +14,8 @@ pnpm --filter @deepseek-ai/dsh-web-frontend exec playwright install --with-deps 
 
 普通场景以没有已登记 Workspace 或 Session、但持久化标记记录默认 Workspace 已被删除的状态启动，使显式文件夹选择场景自行决定 cwd。`launchWebScaffold({ firstUse: true })` 保留初始化资格，供启动场景使用。
 
+可选的[完整手机客户端场景](mobile-full-client.e2e.ts)通过 `DSH_MOBILE_RELAY_ROOT` 定位可部署中继。Chromium 和 WebKit 覆盖 worker 注册失败、启动完成前的可见加载状态、不清除信任的恢复、录制会话、大型二进制传输与 Host 重连。隔离浏览器引擎不能替代真实 iPhone Safari 验收。
+
 ## 完成状态观察
 
 依赖状态的用例使用 Workspace、接纳、附件和模型流屏障，区分可见中间状态与已完成操作。模型选择器的持久化断言等待默认设置保存完成，不以菜单关闭作为完成信号。详情关闭等待框架过渡结束；归档验证为 seed Session 设置显式标题，并跨重载跟踪该身份。[CI 测试可靠性工作流](../../../.agents/skills/dsh-ci-test-reliability/SKILL.md#synchronize-on-state)负责这些同步规则。

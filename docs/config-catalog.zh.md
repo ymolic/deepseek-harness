@@ -221,11 +221,11 @@ export interface Config {
 
 ## `@deepseek-ai/dsh-api-mobile-controller`
 
-- `inject`: `agents` · `sessionController` · `sessionProjections` · `credentials` · `workspaceRegistry`
-- `source`: [`packages/api/mobile-controller/src/index.ts:29`](../packages/api/mobile-controller/src/index.ts)
+- `inject`: `agents` · `sessionController` · `sessionProjections` · `credentials` · `workspaceRegistry` · `connection` · `typertGateway` · `clientModules` · `frontendAssets`
+- `source`: [`packages/api/mobile-controller/src/index.ts:41`](../packages/api/mobile-controller/src/index.ts)
 
 ```ts config-catalog
-/** Deployment choices; the protocol's security ceilings remain fixed. */
+/** Relay deployment settings; authorizationMs and projection limits apply only to legacy text grants. */
 export interface Config {
   /** Allow explicit desktop authorization; disabled instances create no relay connections. */
   readonly enabled: boolean
@@ -237,6 +237,8 @@ export interface Config {
   readonly authorizationMs: number
   /** Deadline in milliseconds for control requests and WebSocket handshakes. */
   readonly requestTimeoutMs: number
+  /** Maximum unacknowledged full-client download fragments; 1-32, independent of phone uploads. */
+  readonly fullFragmentWindow: number
   /** Periodic interval in milliseconds for coalescing changed text into replacement snapshots. */
   readonly flushMs: number
   /** Maximum UTF-8 bytes of recent conversation text retained for the phone. */
@@ -1588,7 +1590,7 @@ export interface Config {
 ## `@deepseek-ai/dsh-host-frontend-static`
 
 - `inject`: `webServer` · `connection`
-- `source`: [`packages/host/frontend-static/src/index.ts:30`](../packages/host/frontend-static/src/index.ts)
+- `source`: [`packages/host/frontend-static/src/index.ts:47`](../packages/host/frontend-static/src/index.ts)
 
 ```ts config-catalog
 /** Plugin config: the dist anchor. */

@@ -8,6 +8,7 @@
     "rewriteRelativeImportExtensions": false
   },
   "include": [
+    "apps/web/tests/mobile-full-client.e2e.ts",
     "apps/web/tests/mobile-remote.e2e.ts",
     "apps/web/tests/mobile-relay-fixture.ts",
     "apps/web/tests/collapse-timing.e2e.ts",

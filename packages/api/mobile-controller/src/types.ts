@@ -8,14 +8,19 @@ export type MobileRequestId = Branded<'mobile-request-id'>
 export type MobileChannelId = Branded<'mobile-channel-id'>
 
 /** Selection made by the authenticated desktop operator. */
-export interface MobileStartRequest {
+export interface MobileSessionStartRequest {
   readonly sessionId: SessionId
   readonly acknowledgeTools: true
   readonly allowWorkspaceRoaming?: boolean
 }
 
+/** Explicit whole-instance device consent; Session execution policies are unchanged. */
+export type MobileStartRequest = MobileSessionStartRequest | { readonly scope: 'instance'; readonly acknowledgeTools: true }
+
 /** Non-secret state safe to show after closing the QR dialog. */
 export interface MobileDesktopState {
+  readonly scope?: 'instance'
+  readonly mobileOnline?: boolean
   readonly phase: 'disabled' | 'stopped' | 'starting' | 'waiting' | 'paired' | 'reconnecting' | 'expired' | 'failed'
   readonly sessionId: SessionId | null
   readonly title: string
@@ -25,7 +30,7 @@ export interface MobileDesktopState {
   readonly pairingUrl?: string | undefined
 }
 
-/** Private response to one desktop gesture; never log or persist pairingUrl. */
+/** Private response to one operator gesture; never log or persist pairingUrl. */
 export interface MobileStartResult {
   readonly pairingUrl: string
   readonly state: MobileDesktopState
@@ -53,6 +58,7 @@ export interface MobileSessionSummary {
   readonly title: string
   readonly updatedAt: number
   readonly status: 'idle' | 'running' | 'desktop-input-required'
+  readonly pinned?: boolean
 }
 
 /** Summary of one Workspace visible in mobile navigation. */
@@ -125,6 +131,10 @@ export type MobileRequest =
   | { readonly type: 'session:create'; readonly channel: MobileChannelId; readonly workspaceId?: string }
   | { readonly type: 'session:follow'; readonly channel: MobileChannelId; readonly sessionId: SessionId }
   | { readonly type: 'session:cancel'; readonly channel: MobileChannelId; readonly sessionId: SessionId }
+  | { readonly type: 'session:rename'; readonly channel: MobileChannelId; readonly sessionId: SessionId; readonly title: string }
+  | { readonly type: 'session:archive'; readonly channel: MobileChannelId; readonly sessionId: SessionId }
+  | { readonly type: 'session:pin'; readonly channel: MobileChannelId; readonly sessionId: SessionId }
+  | { readonly type: 'session:unpin'; readonly channel: MobileChannelId; readonly sessionId: SessionId }
   | { readonly type: 'session:permission'; readonly channel: MobileChannelId; readonly mode: 'plan' | 'build' | 'auto' | 'yolo' }
   | { readonly type: 'model:list'; readonly channel: MobileChannelId }
   | { readonly type: 'session:select_model'; readonly channel: MobileChannelId; readonly provider: string; readonly model: string }

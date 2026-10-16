@@ -2570,8 +2570,8 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     key: 'settings.launcher.actions',
     kind: 'list',
     scope: 'root',
-    summary: 'Contributed More menu rows; each uses MenuItemButton and dismisses before opening its action.',
-    doc: 'Contributed More menu rows; each uses MenuItemButton and dismisses before opening its action.',
+    summary: 'Contributed More menu rows; each dismisses before opening its action.',
+    doc: 'Contributed More menu rows; each dismisses before opening its action.',
     registerOptions: [
       {
         name: 'id',
@@ -2612,7 +2612,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     ],
     replaceRisk: 'none',
     example: 'return {\n  inject: [\'slots\'],\n  apply(ctx) {\n    ctx.slots.inject(\'settings.launcher.actions\', () => ctx.slots.register(\n      { name: \'settings.launcher.actions\', id: \'my-entry\', order: 100, label: \'My entry\' },\n      () => React.createElement(\'div\', null, \'hello\'),\n    ))\n  },\n}',
-    source: 'packages/client/ui-settings-account/src/client/index.ts:39',
+    source: 'packages/client/ui-settings-account/src/client/index.ts:11',
   },
   {
     key: 'settings.models.footer',

@@ -14,6 +14,17 @@ const operations = (): MobileOperations => ({ status: async () => stopped,
 afterEach(() => { vi.useRealTimers() })
 
 describe('desktop mobile authorization model', () => {
+  it('erases the enrollment QR after pairing without stopping device trust', async () => {
+    const api = operations()
+    const model = new MobileModel(api, 2000)
+    try {
+      await model.start({ scope: 'instance', acknowledgeTools: true })
+      api.status = async () => ({ ...waiting, phase: 'paired', expiresAt: null, pairingUrl: 'https://relay.invalid/#must-not-render' })
+      await model.refresh()
+      expect(model.source.getSnapshot().qr).toBeNull()
+      expect(model.source.getSnapshot().state?.phase).toBe('paired')
+    } finally { await model.dispose() }
+  })
   it('ignores a status read started before a newer authorization', async () => {
     const read = Promise.withResolvers<MobileDesktopState>()
     const api = operations(); api.status = () => read.promise

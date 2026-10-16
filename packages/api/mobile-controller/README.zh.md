@@ -1,5 +1,5 @@
 ---
-description: "为配置中继的操作者和扩展消息接收或恢复机制的维护者说明：桌面对单个已有 Session 的授权与手机加密文本控制。"
+description: "为配置中继的操作者和扩展传输或撤销机制的维护者说明：持久手机设备信任与完整 Web 客户端的加密访问。"
 kind: "package-reference"
 ---
 
@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-桌面授权手机访问一个已有 Session（会话）的文本。Host 向配置的中继发起出站连接，投影近期对话文本，并通过现有 agent（智能体）按其当前权限接收手机消息。
+将受信任手机与当前 DSH 实例配对，跨网络使用完整 Web 客户端。会话、设置、文件、终端和交互式审批使用现有应用服务。设备信任跨 Host 和中继重启保留，直到手动忘记；各 Session（会话）仍按原有执行权限运行。
 
 ## 目录
 
@@ -25,7 +25,7 @@ kind: "package-reference"
 
 Web 应用 bundle 包含此控制器，默认禁用。在桌面 profile 的 `cordis.patch.yml` 中，将 `mobile-controller` 行的 `config.enabled` 设为 `true`，并将 `config.relayOrigin` 设为可信兼容中继的精确 HTTPS origin。通过已有凭据存储单独配置 `DSH_MOBILE_DESKTOP_TOKEN`；不要使用中继管理密钥。[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-api-mobile-controller) 维护所有配置字段。隔离测试可使用 loopback HTTP。
 
-已认证桌面调用 `mobile.status`、`mobile.start` 和 `mobile.stop`。Start 要求 Session 可用且未归档，并明确确认手机消息可以使用它已有的工具。返回的配对 URL 是私密临时数据：仅在本地生成二维码，不得记录、持久化、复制到诊断信息或发送给模型。关闭弹窗保留授权。Start 只有在确认中继撤销后才替换已有授权；Stop 在等待中继确认前先拒绝本机接收，并暴露未确认状态以便重试。
+已认证 Web 或 Desktop 客户端调用 `mobile.start({ scope: 'instance', acknowledgeTools: true })`，无需选择 Session。授权授予包括配置和工具审批在内的完整操作者访问，不改变任何 Session 的权限。返回的私密 URL 仅在本地渲染为二维码，不得记录或写入诊断信息。配对后 `mobile.status` 隐藏配对材料。`mobile.stop` 先拒绝本机访问并持久提交撤销标记，再请求中继删除。替换授权要求确认删除；未确认结果持续可见并可重试。
 
 <a id="understand-the-implementation"></a>
 ## 理解实现
@@ -33,20 +33,22 @@ Web 应用 bundle 包含此控制器，默认禁用。在桌面 profile 的 `cor
 <details>
 <summary>实现细节 — 点击展开</summary>
 
-中继通过 `POST /desktop/rooms` 使用已配置的桌面凭据创建房间。房间专属凭据认证出站 `/ws/device` 和 `POST /device/rooms/:id/revoke`。两端都使用 `dsh-relay.v1` WebSocket 子协议和 `session-chat-e2ee` 模式。兼容中继强制执行 120 秒一次性票据，以及从房间创建开始计算、最长十分钟的授权。Host 同时执行单调时钟期限，并在每次接收消息时检查同一个 agent 实例及归档状态。
+完整客户端中继通过 `POST /desktop/devices` 使用独立配置凭据创建持久设备房间。房间专属凭据认证出站 `/ws/device` 和房间撤销。状态声明协议 2 与 `full-client-e2ee`，socket 子协议仍为 `dsh-relay.v1`。配对票据 120 秒过期，已配对设备权限没有授权 TTL。Host 在凭据服务中保存带版本的设备记录；中继仅持久化认证摘要和房间元数据。
 
-二维码 fragment 携带房间、票据和随机 32 字节秘密。HKDF-SHA256 使用房间作为 salt、`dsh-mobile/v1/{direction}` 作为 info，派生桌面、手机和浏览器存储的独立密钥。AES-256-GCM 使用随机 12 字节 IV，并认证房间、方向、代次和序号。中继转发不透明封装，仍可看到时间和大小。下发的手机 JavaScript 及两端设备必须可信。TLS 和载荷加密无法防护恶意页面分发者或已失陷的端点。
+二维码 fragment 携带房间、票据和随机秘密。分方向 HKDF 密钥与 AES-256-GCM 认证加密帧。每次重连交换新的已认证挑战，并在接受应用操作前派生新流量密钥。中继可见时间和大小，但不能读取应用内容。分发的手机 JavaScript 和两端设备仍须可信；载荷加密无法防护恶意分发者或已失陷端点。
 
-加密协议支持 hello、同步、文本发送和回执查询，以及扩展的移动能力协议：工作区与会话列表/切换、包含折叠工具卡片的富文本快照、生成中止、工具审批确认与结构化问题回答。所有手机请求均通过严格的精确字段白名单校验，拒绝通用 RPC 隧道穿透。代次和序号检查拒绝缺口与重放。每次授权最多保留 256 条请求回执且不淘汰：重复 ID 返回原始接收结果，同一 ID 下的不同文本冲突。不确定的接收结果保持不确定，绝不自动再次执行。完整且有界的文本与结构化卡片快照用于恢复漏收的流更新，无需无界 RPC 重放缓存。
+已认证传输仅分派已注册 `/api/` handler、Client 插件 bundle、已配置前端资产和 Gateway 逻辑流，不代理调用者指定的网络目标。手机 service worker 在受控文档内提供原有应用，不持有密钥或私密响应缓存。带确认的分片约束加密帧，上传和下载按背压流式处理，断线取消活动流而不重放已提交变更。JavaScript、CSS 和 SVG 资产在加密前以 gzip 流式压缩；私密 HTML 与 API 响应不压缩。压缩下载在加密分片前合并为最多 192 KiB 的有界块。
 
-停止、到期、Session 释放和插件卸载会释放流、连接、密钥、回执及定时器。临时连接失败允许三次重试，只有稳定三十秒才恢复预算。已有审批和问题仍交由桌面处理。手机投影排除系统提示、推理、工具载荷和注入的用户消息。
+关闭二维码弹窗仅隐藏界面。Host 卸载只关闭连接，不撤销设备信任。重连监督使用有上限的指数退避；服务不可用时持续显示离线。旧 Session-start 请求为已有文本客户端保留，继续使用短期投影与回执协议，不实现完整客户端生命周期。
+
+所有并发下载包共用有界窗口；`fullFragmentWindow` 配置未确认分片数，范围 1-32，默认 32。Host 采用配置与中继声明两者中较小的限制；未声明窗口的旧中继仍限八分片。手机上传保留独立的八分片窗口。兼容中继允许包含加密封装在内最多 1 MiB 的完整客户端 socket 缓冲，超限即断开。单分片限制、按需响应块与取消机制不变；确认回执分别完成各次发送，不要求每个包之间再等待一次网络往返。
 
 </details>
 
 <a id="further-exploration"></a>
 ## 进一步探索
 
-参见[桌面 UI](../../client/ui-mobile-remote/README.zh.md)、[Session Controller](../session-controller/README.zh.md) 和[授权决策](../../../.agents/notes/implemented/architecture/2026-10-15-session-scoped-mobile-control.zh.md)。
+参见[配对 UI](../../client/ui-mobile-remote/README.zh.md)、[Session Controller](../session-controller/README.zh.md) 和[完整客户端授权决策](../../../.agents/notes/implemented/architecture/2026-10-15-persistent-full-mobile-client.zh.md)。
 
 <a id="model-experience"></a>
 ## 模型体验
@@ -55,16 +57,16 @@ Web 应用 bundle 包含此控制器，默认禁用。在桌面 profile 的 `cor
 
 #### KV Cache 影响
 
-手机文本追加为普通用户消息；此控制器不增加系统前缀或工具 schema。
+手机操作使用 Web 客户端同一组带日志的应用操作；传输不增加系统前缀或工具 schema。
 
 ## 已知限制与后续工作
 
 <a id="known-limitations-and-deferred-work"></a>
 
-- 移动端漫游严格受限于宿主工作区和会话；系统级终端、任意宿主文件遍历和凭据读取保持严格限制。
-- 两端均不支持授权跨 Host 重启保留。断线手机只能在原授权仍有效时恢复；网络失败可能延迟服务器撤销的确认，但不能恢复本机接收权限。
+- 中继必须支持持久协议 2 房间。浏览器 cookie 受浏览器有效期限制，也可能与 IndexedDB 一起被清除；清理浏览器数据后需要重新配对。Host 必须运行才能执行操作。
+- 原生 Electron 集成不是浏览器能力。远端目录选择需组合现有 browse 目录选择后端。真实 iPhone Safari、后台挂起与蜂窝网络可靠性需真机验收。
 
 <a id="dev-note"></a>
 ### 开发备注
 
-[决策](../../../.agents/notes/implemented/architecture/2026-10-15-session-scoped-mobile-control.zh.md) 维护限制与恢复取舍。Loader 组合和浏览器检查位于 [mobile-remote.e2e.ts](../../../apps/web/tests/mobile-remote.e2e.ts)。
+[决策](../../../.agents/notes/implemented/architecture/2026-10-15-persistent-full-mobile-client.zh.md) 维护授权与恢复取舍。真实 Loader 和可选部署中继浏览器检查位于 [mobile-full-client.e2e.ts](../../../apps/web/tests/mobile-full-client.e2e.ts)。

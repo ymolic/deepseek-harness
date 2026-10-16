@@ -40,7 +40,6 @@ export const inject = ['slots', 'locale', 'remote', 'remote.mobile']
 
 /** @param ctx - desktop Client services. @param config - status polling policy. */
 export function apply(ctx: Context, config: Config): void {
-  if (!('dshDesktop' in globalThis)) return
   const resolved = Config(config)
   ctx.effect(() => ctx.locale.register('mobile.remote', { en, zh }), 'mobile: dictionaries')
   const mobile = ctx.remote.mobile

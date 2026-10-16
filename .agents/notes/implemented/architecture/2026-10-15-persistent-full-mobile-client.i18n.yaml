@@ -1,0 +1,19 @@
+# Bilingual-pair consistency record for 2026-10-15-persistent-full-mobile-client.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-10-15-persistent-full-mobile-client.md
+/agent-note-persistent-full-mobile-client:
+  en: 9fbf629751f6b0ab
+  zh: d8b7e8b723d27bb6
+/agent-note-persistent-full-mobile-client/problem:
+  en: ad08cd10912a8b40
+  zh: be8ad6d68d88f384
+/agent-note-persistent-full-mobile-client/decision:
+  en: 53e094d70d842ae6
+  zh: 7a1fcaa5cf432a8b
+/agent-note-persistent-full-mobile-client/alternatives-considered:
+  en: d79a0be5d51b0d60
+  zh: 2e4e31ec5b7edea9
+/agent-note-persistent-full-mobile-client/consequences:
+  en: c7ba5076a3235ebc
+  zh: 2b11b8ba7edfc10f

@@ -840,6 +840,14 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'Plain node:http carrier: named-route registry, index transform taps, and the static dist fallback; web-transport plugins register their own routes.',
   },
   {
+    key: 'frontendAssets',
+    pkg: 'host-frontend-static',
+    title: 'Built frontend assets',
+    mode: 'core',
+    consumers: ['api-mobile-controller'],
+    note: 'Serves configured dist assets and rendered bootstrap HTML to carriers that already authenticate full-instance access.',
+  },
+  {
     key: 'clientModules',
     pkg: 'client-modules',
     title: 'Client plugin graph host',

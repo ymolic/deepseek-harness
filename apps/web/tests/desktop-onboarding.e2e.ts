@@ -194,11 +194,19 @@ describe.skipIf(MODE === 'record')('web e2e: App-only desktop onboarding', () =>
   }
 
   it('keeps Web unchanged, resumes App progress, and returns to credit even when balance refresh fails', async () => {
+    const accountEntry = await readFile(join(REPO_ROOT, 'packages/client/ui-settings-account/lib/client.js'), 'utf8')
+    expect(accountEntry).not.toContain('data:image/png;base64,')
+    expect(accountEntry).toContain('client.desktop.js')
     const web = await browser.newPage({ viewport: { width: 1280, height: 840 }, locale: ZH_BROWSER_LOCALE })
+    const desktopChunks: string[] = []
+    web.on('request', (request) => {
+      if (new URL(request.url()).pathname.endsWith('/client.desktop.js')) desktopChunks.push(request.url())
+    })
     try {
       await web.goto(scaffold.authenticatedUrl, { waitUntil: 'load' })
       await web.getByText('选择一个工作区开始', { exact: true }).waitFor()
       expect(await web.locator('[data-desktop-onboarding]').count()).toBe(0)
+      expect(desktopChunks).toEqual([])
       expect((scaffold.ctx.settings.describe().find(row => row.ns === NS)?.value as { step: string }).step).toBe('welcome')
     } finally { await web.close() }
 

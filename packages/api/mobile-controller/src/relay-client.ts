@@ -39,10 +39,11 @@ export async function controlJson(response: Response): Promise<unknown> {
  * @param origin - configured HTTPS origin (loopback HTTP is allowed for tests).
  * @param credential - credential-store value resolved for this operation.
  * @param signal - caller lifetime combined with the request deadline.
+ * @param full - request persistent instance access instead of a legacy text room.
  * @returns ephemeral room material after strict response validation.
  */
-export async function createRoom(origin: string, credential: string, signal: AbortSignal): Promise<RelayRoom> {
-  const value = await controlJson(await fetch(`${origin}/desktop/rooms`, {
+export async function createRoom(origin: string, credential: string, signal: AbortSignal, full = false): Promise<RelayRoom> {
+  const value = await controlJson(await fetch(`${origin}/desktop/${full ? 'devices' : 'rooms'}`, {
     method: 'POST', headers: { authorization: `Bearer ${credential}` }, redirect: 'error', signal,
   }))
   if (!isRecord(value) || typeof value.roomId !== 'string' || !/^[A-Za-z0-9_-]{24}$/.test(value.roomId)

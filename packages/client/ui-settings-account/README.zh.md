@@ -30,7 +30,7 @@ kind: "package-reference"
 
 Launcher 在标准菜单内开放根级列表 slot `settings.launcher.actions`。扩展项接收 `onDismiss`，使用菜单基础组件，在打开自己的界面前关闭所属菜单。[手机控制插件](../ui-mobile-remote/README.zh.md) 通过此 slot 注册入口。
 
-客户端仅在具有 preload 桥接的 Desktop 内启用。普通 Web 客户端保留标准设置入口和 API Key 引导，不显示账号登录和账号设置，也不订阅账号状态。
+客户端仅在具有 preload 桥接的 Desktop 内异步加载账号实现与引导图片。普通 Web 客户端不下载这两部分，保留标准设置入口和 API Key 引导，不显示账号登录和账号设置，也不订阅账号状态。Desktop 模块加载失败由 Loader 报告；加载期间卸载插件会阻止迟到的账号注册。
 
 侧边栏和账号设置以正圆图片显示账号头像，直径分别为 24px 和 32px；头像 URL 缺失或图片加载失败时使用账号图标兜底。折叠侧边栏将头像居中放置在 36 × 36 px 的按钮内。登录前侧边栏入口改为「更多」行，以三点图标开头。
 

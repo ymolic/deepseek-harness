@@ -6,11 +6,13 @@ English | [中文](2026-10-15-session-scoped-mobile-control.zh.md)
 
 ## Problem
 
+This note retains the legacy text grant and bounded-receipt rationale. [Persistent Full Mobile Client](2026-10-15-persistent-full-mobile-client.md) supersedes its default Session-only consent, short lifetime and desktop-only interactions; the full client has explicit instance-wide operator consent.
+
 A phone needs to exchange text with an explicitly selected desktop Session across networks. The existing authenticated Client has broad operator authority, and relaying its generic Remote calls would grant more access than the selected Session permits. Transport interruption also makes a successful send indistinguishable from a lost acknowledgement.
 
 ## Decision
 
-The [mobile controller](../../../../packages/api/mobile-controller/README.md) owns a short-lived grant to the same Agent instance. The phone receives only bounded user and assistant text and can send text or query state and receipts. The existing Agent, permission services, and durable Session admission remain the execution authority; the phone cannot alter the grant's Session, paths, permissions, or method set. Approvals and questions stay on the desktop.
+The legacy [mobile controller](../../../../packages/api/mobile-controller/README.md) owns a short-lived text grant. Its bounded message projection and durable admission use the existing Agent and permission services. The compatibility client also supports workspace roaming and structured model, permission and interaction controls; those extensions are not the original Session-only security guarantee. New enrollments use the full client's explicit instance consent instead of inferring broad authority from a Session selection.
 
 An independent provisioned desktop credential creates relay rooms. A single-use QR fragment carries ephemeral pairing material and an encryption secret; the relay never receives the secret. Direction-specific HKDF keys and authenticated AES-GCM envelopes keep passive relay operators from reading conversation payloads. The page distributor and endpoints remain trusted, so this does not claim protection from a relay operator replacing the served JavaScript.
 
@@ -30,4 +32,4 @@ The Host retains request IDs and admission outcomes for the complete grant, with
 
 The shipped Loader composition exercises real Agent admission, recorded replies, duplicate IDs, revocation retry, and plugin disposal. Browser checks cover consent and QR lifecycle. Unit checks reject authority fields, forged envelopes, gaps, replay, and stale publication. Deployment acceptance still needs a compatible relay; Chromium mobile emulation cannot establish iPhone Safari behavior or network reliability.
 
-The grant expires within ten minutes, cannot survive Host restart, and supports a single Session. A disconnected desktop cannot accept phone commands. A network partition can prevent confirmed relay deletion, but cannot make a locally revoked Agent accept another request. These limits belong to DSH's design and are not claims about any reference application's server behavior.
+The legacy grant expires within ten minutes and cannot survive Host restart. A disconnected desktop cannot accept phone commands. A network partition can prevent confirmed relay deletion, but cannot make a locally revoked Agent accept another request. These legacy limits do not describe the persistent full client and are not claims about any reference application's server behavior.

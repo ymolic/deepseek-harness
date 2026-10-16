@@ -138,6 +138,18 @@ describe('real Loader composition', () => {
 
     // Unknown extension ships as octet-stream.
     expect(await request(port, '/blob.bin')).toMatchObject({ status: 200, type: 'application/octet-stream', body: 'BLOB' })
+    for (const [path, method, status, body] of [
+      ['/', 'GET', 200, 'shell'],
+      ['/blob.bin', 'GET', 200, 'BLOB'],
+      ['/app.js', 'HEAD', 200, ''],
+      ['/missing.js', 'GET', 404, ''],
+      ['/..%2f..%2fprivate', 'GET', 403, ''],
+      ['/app.js', 'POST', 405, ''],
+    ] as const) {
+      const response = await loaded.frontendAssets.fetch(new Request(`https://dsh.invalid${path}`, { method }))
+      expect(response.status).toBe(status)
+      expect(await response.text()).toContain(body)
+    }
 
     // Only the root and index path render index.html through registered taps.
     const untap = server.tapIndex(html => html.replace('<head>', '<head><script>window.__T__=1</script>'))

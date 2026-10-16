@@ -54,15 +54,19 @@ export class MobileModel {
         const value = await this.operations.status()
         if (!this.disposed && this.generation === generation) this.source.update((state) => {
           state.state = value
-          if (!['waiting', 'paired', 'reconnecting'].includes(value.phase) || (value.expiresAt !== null && value.expiresAt <= Date.now())) {
+          if (value.phase !== 'waiting' || (value.ticketExpiresAt !== null && value.ticketExpiresAt <= Date.now())) {
             state.qr = null
           }
         })
-        if (this.current(generation) && value.pairingUrl && !this.source.getSnapshot().qr) {
+        if (this.current(generation) && value.phase === 'waiting' && value.pairingUrl
+          && (value.ticketExpiresAt === null || value.ticketExpiresAt > Date.now()) && !this.source.getSnapshot().qr) {
           try {
             const qr = await QRCode.toDataURL(value.pairingUrl, { width: 300, margin: 2, errorCorrectionLevel: 'M' })
             if (this.current(generation)) this.source.update((s) => { s.qr = qr })
-          } catch {}
+          } catch (_error: unknown) {
+            // Keep authorization intact when only local QR rendering fails.
+            if (this.current(generation)) this.source.update((state) => { state.failed = true })
+          }
         }
       } catch (_error) { if (!this.disposed && this.generation === generation) this.source.update((state) => { state.failed = true }) }
     })()
@@ -71,7 +75,7 @@ export class MobileModel {
     return task
   }
 
-  /** @param request - explicitly acknowledged desktop Session selection. */
+  /** @param request - explicitly acknowledged operator consent. */
   start(request: MobileStartRequest): Promise<void> {
     return this.operate(async (generation) => {
       const value = await this.operations.start(request)

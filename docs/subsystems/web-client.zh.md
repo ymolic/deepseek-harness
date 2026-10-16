@@ -27,9 +27,9 @@ Web boot kernel 创建模块系统、预取 `immediately` entry、挂载 vendore
 
 ## Remote 通信
 
-[手机远控](../../packages/api/mobile-controller/README.zh.md)只通过已认证的桌面 Remote 调用管理授权界面。手机通道在绑定单个 Agent 的受限 Host 执行器终止，不转发操作员的通用 Remote 命名空间。[桌面菜单](../../packages/client/ui-mobile-remote/README.zh.md)负责临时二维码展示，并区分关闭弹窗与停止授权。
+[手机远控](../../packages/api/mobile-controller/README.zh.md)在明确的整实例授权后，通过加密出站通道连接现有 Web 客户端。Host 分发已注册的应用 API、Gateway 流和资源，而非任意网络目的地；Session 执行权限保持不变。[桌面菜单](../../packages/client/ui-mobile-remote/README.zh.md)负责临时二维码展示，并区分关闭弹窗与忘记受信任设备。有界的 Session 文本执行器仅保留兼容用途。
 
-`MobileStartRequest` 携带选定的 `sessionId` 和对已有工具权限的明确确认。`MobileStartResult` 返回临时配对材料及 `MobileDesktopState`；只有后者适合常规状态读取。该状态报告授权阶段、选定 Session、期限及中继是否确认撤销。[类型声明](../../packages/api/mobile-controller/src/types.ts)维护这些字段。
+`MobileStartRequest` 携带明确的整实例授权或旧版 Session 选择。`MobileStartResult` 返回临时配对材料及 `MobileDesktopState`；等待扫码时，桌面状态也可能含二维码 URL，不得记录日志。配对后状态报告连接可用性与中继撤销结果，不再暴露二维码。[类型声明](../../packages/api/mobile-controller/src/types.ts)维护这些字段。
 
 Host 业务 service 使用 Typert Remote decorator 标记可调用 method。Host generation 产出严格 descriptor、runtime codec、declaration merge 与 source map。Client 侧 `api-remotes` assembly 选择这些生成贡献，并把具体 method 挂到 `ctx.remote.<namespace>` 与 Session scope 的 `agentCtx.remote.<namespace>`。功能包依赖生成的 service face，而不依赖 Gateway 实现或 Host 包的运行时 entry。
 
@@ -115,18 +115,18 @@ Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnp
 
 ### `ctx.mobileController` — `MobileController`
 
-Only the authenticated desktop receives these Remote controls. Phone execution never dispatches Remote methods.
+Authenticated operator controls for enrollment and manual device revocation.
 
 ```ts cordis-catalog
 /**
- * Read the current authorization without exposing private pairing material.
- * @returns authorization state without credentials or QR material.
+ * Read enrollment and connection state for the authenticated operator.
+ * @returns state with transient QR material only while enrollment is pending; never log it.
  */
 @Remote status(): MobileDesktopState
 
 /**
- * Explicitly authorize one existing, ordinary, unarchived Session.
- * @param request - desktop selection and acknowledgement that messages may use existing tools.
+ * Authorize the full instance, or a legacy Session grant when no full-device trust exists.
+ * @param request - explicit instance consent or legacy Session selection and tool acknowledgement.
  * @returns a short-lived QR URL; keep it only in the desktop's transient view state.
  * @throws when disabled, already starting, revoked state is uncertain, or the selected Session cannot be used.
  */

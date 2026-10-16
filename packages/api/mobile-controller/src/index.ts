@@ -1,4 +1,4 @@
-/** Desktop-owned single-Session phone authorization and encrypted outbound relay bridge. */
+/** Persistent instance-wide phone access with a legacy text-client compatibility path. */
 import { randomBytes, createHash } from 'node:crypto'
 import { performance } from 'node:perf_hooks'
 import { Context } from '@deepseek-ai/cordis'
@@ -21,39 +21,23 @@ import { Remote, RemoteError, TypertRemoteService } from '@deepseek-ai/dsh-typer
 import { WebSocket } from 'ws'
 import { MobileCipher, mobileRequest, isRecord, MOBILE_WIRE } from './protocol.ts'
 import { MobileProjection } from './projection.ts'
+import { FullMobileHost } from './full-host.ts'
 import { createRoom, revokeRoom, connectDevice, closeDevice, type RelayRoom } from './relay-client.ts'
 import type {
   MobileChannelId, MobileDesktopState, MobileReply, MobileRequestId, MobileReceiptStatus,
   MobileStartRequest, MobileStartResult, MobileWorkspaceSummary, MobileSessionSummary,
-  MobileModelItem,
+  MobileModelItem, MobileSessionStartRequest,
 } from './types.ts'
 
 export type * from './types.ts'
 
-interface PlanModeService {
-  set(agent: Agent, active: boolean): void
-  loggedActive(session: unknown): boolean
-}
-
-interface PermissionPresetsService {
-  current(session: unknown): string
-  set(session: unknown, name: string): void
-}
-
-interface AgentDefaultModelService {
-  currentSelection(): { provider: string; model: string }
-}
-
 declare module '@deepseek-ai/cordis' {
   interface Context {
     mobileController: MobileController
-    planMode?: PlanModeService
-    permissionPresets?: PermissionPresetsService
-    agentDefaultModel?: AgentDefaultModelService
   }
 }
 
-/** Deployment choices; the protocol's security ceilings remain fixed. */
+/** Relay deployment settings; authorizationMs and projection limits apply only to legacy text grants. */
 export interface Config {
   /** Allow explicit desktop authorization; disabled instances create no relay connections. */
   readonly enabled: boolean
@@ -65,6 +49,8 @@ export interface Config {
   readonly authorizationMs: number
   /** Deadline in milliseconds for control requests and WebSocket handshakes. */
   readonly requestTimeoutMs: number
+  /** Maximum unacknowledged full-client download fragments; 1-32, independent of phone uploads. */
+  readonly fullFragmentWindow: number
   /** Periodic interval in milliseconds for coalescing changed text into replacement snapshots. */
   readonly flushMs: number
   /** Maximum UTF-8 bytes of recent conversation text retained for the phone. */
@@ -94,14 +80,16 @@ interface Grant {
   tick: ReturnType<typeof setInterval> | undefined
 }
 
-/** Only the authenticated desktop receives these Remote controls. Phone execution never dispatches Remote methods. */
+/** Authenticated operator controls for enrollment and manual device revocation. */
 export class MobileController extends TypertRemoteService {
-  static inject = ['agents', 'sessionController', 'sessionProjections', 'credentials', 'workspaceRegistry']
+  static inject = ['agents', 'sessionController', 'sessionProjections', 'credentials', 'workspaceRegistry',
+    'connection', 'typertGateway', 'clientModules', 'frontendAssets']
   static Config: z<Config> = z.object({
     enabled: z.boolean().default(false), relayOrigin: z.string().default(''),
     credential: z.string().default('DSH_MOBILE_DESKTOP_TOKEN'),
     authorizationMs: z.natural().min(1000).max(600000).default(600000),
     requestTimeoutMs: z.natural().min(100).max(15000).default(8000),
+    fullFragmentWindow: z.natural().min(1).max(32).default(32),
     flushMs: z.natural().min(100).max(1000).default(250),
     historyBytes: z.natural().min(1000).max(16000).default(16000),
   })
@@ -114,6 +102,7 @@ export class MobileController extends TypertRemoteService {
   private pendingRevoke: RelayRoom | undefined
   private disposed = false
   private state: MobileDesktopState
+  private readonly full: FullMobileHost
 
   /**
    * @param ctx - Host services that already own Agents, permissions, and persistence.
@@ -132,8 +121,9 @@ export class MobileController extends TypertRemoteService {
     }
     this.state = { phase: this.config.enabled ? 'stopped' : 'disabled', sessionId: null, title: '',
       expiresAt: null, ticketExpiresAt: null, relayRevoked: true }
+    this.full = new FullMobileHost(ctx, this.config)
     ctx.on('agent/status', ({ agent }) => { if (this.grant?.agent === agent) this.grant.dirty = true }, { global: true })
-    ctx.on('agent/disposed', ({ agent }) => { if (this.grant?.agent === agent) void this.end('stopped') }, { global: true })
+    ctx.on('agent/disposed', ({ agent }) => { if (this.grant?.agent === agent) this.grant.dirty = true }, { global: true })
 
     // Intercept approval requests for mobile human-in-the-loop decision arbitration.
     ctx.on('approval/request', async (req: ApprovalRequest, next: () => Promise<ApprovalOutcome>) => {
@@ -156,16 +146,17 @@ export class MobileController extends TypertRemoteService {
     ctx.effect(() => async () => {
       this.disposed = true
       this.starting?.abort()
-      await this.stop()
+      await this.end('stopped')
     }, 'mobile: authorization, stream and transport lifetime')
   }
 
   /**
-   * Read the current authorization without exposing private pairing material.
-   * @returns authorization state without credentials or QR material.
+   * Read enrollment and connection state for the authenticated operator.
+   * @returns state with transient QR material only while enrollment is pending; never log it.
    */
   @Remote
   status(): MobileDesktopState {
+    if (this.full.active()) return this.full.status()
     if (this.grant && this.valid(this.grant)) {
       return { ...this.state, pairingUrl: this.grant.pairingUrl }
     }
@@ -173,13 +164,17 @@ export class MobileController extends TypertRemoteService {
   }
 
   /**
-   * Explicitly authorize one existing, ordinary, unarchived Session.
-   * @param request - desktop selection and acknowledgement that messages may use existing tools.
+   * Authorize the full instance, or a legacy Session grant when no full-device trust exists.
+   * @param request - explicit instance consent or legacy Session selection and tool acknowledgement.
    * @returns a short-lived QR URL; keep it only in the desktop's transient view state.
    * @throws when disabled, already starting, revoked state is uncertain, or the selected Session cannot be used.
    */
   @Remote
   start(request: MobileStartRequest): Promise<MobileStartResult> {
+    if ('scope' in request) {
+      this.starting?.abort()
+      return this.full.start(this.end('stopped'))
+    }
     if (!this.config.enabled || this.disposed || this.starting) {
       throw new RemoteError('gateway/bad-request', 'Mobile authorization is unavailable.', {})
     }
@@ -200,6 +195,9 @@ export class MobileController extends TypertRemoteService {
    */
   @Remote
   async stop(): Promise<MobileDesktopState> {
+    if (this.full.active()) return this.full.stop()
+    await this.full.initialized()
+    if (this.full.active()) return this.full.stop()
     this.starting?.abort()
     const starting = this.startTask
     await this.end('stopped')
@@ -207,10 +205,12 @@ export class MobileController extends TypertRemoteService {
     return this.state
   }
 
-  private async begin(request: MobileStartRequest, abort: AbortController): Promise<MobileStartResult> {
+  private async begin(request: MobileSessionStartRequest, abort: AbortController): Promise<MobileStartResult> {
     let room: RelayRoom | undefined
     let installed = false
     try {
+      await this.full.initialized()
+      if (this.full.active()) throw new Error('instance device consent owns phone access')
       if (!await this.end('stopped')) throw new Error('relay revocation unconfirmed')
       abort.signal.throwIfAborted()
       this.state = { ...this.state, phase: 'starting' }
@@ -263,9 +263,8 @@ export class MobileController extends TypertRemoteService {
   }
 
   private valid(grant: Grant): boolean {
-    return !this.disposed && this.grant === grant && !grant.abort.signal.aborted && performance.now() < grant.deadline
-      && Date.now() < grant.expiresAt && this.ctx.agents.get(grant.agent.id) === grant.agent
-      && !this.ctx.workspaceRegistry.archivedSessionIds.includes(grant.agent.id)
+    return !this.disposed && this.grant === grant && !grant.abort.signal.aborted
+      && performance.now() < grant.deadline && Date.now() < grant.expiresAt
   }
 
   private async getWorkspaceSummaries(): Promise<MobileWorkspaceSummary[]> {
@@ -280,6 +279,7 @@ export class MobileController extends TypertRemoteService {
       }
       const sessionMap = new Map(sessions.map(s => [s.sessionId, s]))
       const archived = new Set(this.ctx.workspaceRegistry.archivedSessionIds)
+      const pinned = new Set(this.ctx.workspaceRegistry.pinnedSessionIds)
       const summaries: MobileWorkspaceSummary[] = []
       const accounted = new Set<string>()
 
@@ -291,11 +291,16 @@ export class MobileController extends TypertRemoteService {
           const info = sessionMap.get(sId)
           const activeAgent = this.ctx.agents.get(sId)
           const status = activeAgent ? (activeAgent.status === 'running' ? 'running' : 'idle') : 'idle'
-          const title = (info?.projections?.values.title ?? '').slice(0, 100) || 'Session'
+          let title = (info?.projections?.values.title ?? '').slice(0, 100)
+          if (!title && activeAgent) {
+            title = (this.ctx.sessionProjections.snapshot(activeAgent.session, ['title']).values.title ?? '').slice(0, 100)
+          }
+          if (!title) title = '新会话'
           const updatedAt = typeof info?.updatedAt === 'number' ? info.updatedAt : Date.now()
-          wsSessions.push({ sessionId: sId, title, updatedAt, status })
+          wsSessions.push({ sessionId: sId, title, updatedAt, status, pinned: pinned.has(sId) })
           if (wsSessions.length >= 25) break
         }
+        wsSessions.sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0) || b.updatedAt - a.updatedAt)
         summaries.push({
           workspaceId: ws.id,
           name: ws.title || ws.path,
@@ -308,17 +313,43 @@ export class MobileController extends TypertRemoteService {
         if (!accounted.has(s.sessionId) && !archived.has(s.sessionId)) {
           const activeAgent = this.ctx.agents.get(s.sessionId)
           const status = activeAgent ? (activeAgent.status === 'running' ? 'running' : 'idle') : 'idle'
-          const title = (s.projections?.values.title ?? '').slice(0, 100) || 'Session'
-          unassigned.push({ sessionId: s.sessionId, title, updatedAt: s.updatedAt || Date.now(), status })
-          if (unassigned.length >= 20) break
+          let title = (s.projections?.values.title ?? '').slice(0, 100)
+          if (!title && activeAgent) {
+            title = (this.ctx.sessionProjections.snapshot(activeAgent.session, ['title']).values.title ?? '').slice(0, 100)
+          }
+          if (!title) title = '新会话'
+          unassigned.push({ sessionId: s.sessionId, title, updatedAt: s.updatedAt || Date.now(), status, pinned: pinned.has(s.sessionId) })
+          if (unassigned.length >= 25) break
         }
+        unassigned.sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0) || b.updatedAt - a.updatedAt)
       }
       if (unassigned.length > 0) {
         summaries.push({
           workspaceId: 'default',
-          name: '其他会话',
+          name: '默认工作区',
           sessions: unassigned,
         })
+      }
+      while (Buffer.byteLength(JSON.stringify(summaries)) > 20000) {
+        let oldestWs: MobileWorkspaceSummary | undefined
+        let oldestIndex = -1
+        let oldestTime = Infinity
+        for (const ws of summaries) {
+          for (let i = 0; i < ws.sessions.length; i++) {
+            const sess = ws.sessions[i]
+            if (!sess) continue
+            if (!sess.pinned && sess.updatedAt < oldestTime) {
+              oldestTime = sess.updatedAt
+              oldestWs = ws
+              oldestIndex = i
+            }
+          }
+        }
+        if (oldestWs && oldestIndex >= 0) {
+          (oldestWs.sessions as MobileSessionSummary[]).splice(oldestIndex, 1)
+        } else {
+          break
+        }
       }
       return summaries
     } catch {
@@ -355,8 +386,9 @@ export class MobileController extends TypertRemoteService {
         grant.projection.accept(frame)
         grant.dirty = true
       }
-      if (this.valid(grant) && !signal.aborted) void this.end('failed')
-    } catch (_error) { if (this.valid(grant) && !signal.aborted) void this.end('failed') }
+    } catch (_error) {
+      this.ctx.logger.warn('mobile session follow ended: %o', _error)
+    }
   }
 
   private connect(grant: Grant): Promise<void> {
@@ -436,8 +468,8 @@ export class MobileController extends TypertRemoteService {
             }
             if (request.type === 'session:permission') {
               try {
-                const planMode = this.ctx.get('planMode')
-                const permissionPresets = this.ctx.get('permissionPresets')
+                const planMode = this.ctx.get('planMode') as { set(agent: Agent, active: boolean): void } | undefined
+                const permissionPresets = this.ctx.get('permissionPresets') as { set(session: unknown, name: string): void } | undefined
                 if (request.mode === 'plan') {
                   planMode?.set(grant.agent, true)
                   permissionPresets?.set(grant.agent.session, 'workspace-write')
@@ -501,6 +533,89 @@ export class MobileController extends TypertRemoteService {
               }
               return
             }
+            if (request.type === 'session:rename') {
+              try {
+                const sessionTitle = this.ctx.get('sessionTitle') as { rename(session: unknown, name: string): void } | undefined
+                let targetAgent = this.ctx.agents.get(request.sessionId)
+                if (!targetAgent) {
+                  const resolved = await this.ctx.sessionController.resolveAgent(request.sessionId)
+                  if ('agent' in resolved) targetAgent = resolved.agent
+                }
+                if (targetAgent && sessionTitle) {
+                  sessionTitle.rename(targetAgent.session, request.title)
+                }
+                const summaries = await this.getWorkspaceSummaries()
+                this.reply(grant, {
+                  type: 'workspace:state',
+                  channel: request.channel,
+                  revision: ++grant.revision,
+                  workspaces: summaries,
+                  activeSessionId: grant.agent.id,
+                })
+                grant.dirty = true
+                this.flush(grant)
+              } catch (err) {
+                this.ctx.logger.warn('mobile session:rename error: %o', err)
+              }
+              return
+            }
+            if (request.type === 'session:archive') {
+              try {
+                await this.ctx.workspaceRegistry.archiveSession(request.sessionId)
+                if (grant.agent.id === request.sessionId) {
+                  const summaries = await this.getWorkspaceSummaries()
+                  const firstOther = summaries.flatMap(w => w.sessions).find(s => s.sessionId !== request.sessionId)
+                  if (firstOther) {
+                    await this.switchSession(grant, firstOther.sessionId)
+                  }
+                }
+                const summaries = await this.getWorkspaceSummaries()
+                this.reply(grant, {
+                  type: 'workspace:state',
+                  channel: request.channel,
+                  revision: ++grant.revision,
+                  workspaces: summaries,
+                  activeSessionId: grant.agent.id,
+                })
+                grant.dirty = true
+                this.flush(grant)
+              } catch (err) {
+                this.ctx.logger.warn('mobile session:archive error: %o', err)
+              }
+              return
+            }
+            if (request.type === 'session:pin') {
+              try {
+                await this.ctx.workspaceRegistry.pinSession(request.sessionId)
+                const summaries = await this.getWorkspaceSummaries()
+                this.reply(grant, {
+                  type: 'workspace:state',
+                  channel: request.channel,
+                  revision: ++grant.revision,
+                  workspaces: summaries,
+                  activeSessionId: grant.agent.id,
+                })
+              } catch (err) {
+                this.ctx.logger.warn('mobile session:pin error: %o', err)
+              }
+              return
+            }
+            if (request.type === 'session:unpin') {
+              try {
+                await this.ctx.workspaceRegistry.unpinSession(request.sessionId)
+                const summaries = await this.getWorkspaceSummaries()
+                this.reply(grant, {
+                  type: 'workspace:state',
+                  channel: request.channel,
+                  revision: ++grant.revision,
+                  workspaces: summaries,
+                  activeSessionId: grant.agent.id,
+                })
+              } catch (err) {
+                this.ctx.logger.warn('mobile session:unpin error: %o', err)
+              }
+              return
+            }
             if (request.type === 'session:cancel') {
               this.ctx.sessionController.cancel({ sessionId: request.sessionId })
               grant.dirty = true
@@ -536,9 +651,13 @@ export class MobileController extends TypertRemoteService {
             if (previous) status = previous.digest === digest ? previous.status : 'conflict'
             else if (grant.receipts.size >= 256) status = 'limit'
             else {
-              const targetAgent = request.sessionId && request.sessionId !== grant.agent.id
-                ? (this.ctx.agents.get(request.sessionId) ?? grant.agent)
-                : grant.agent
+              const targetId = request.sessionId || grant.agent.id
+              let targetAgent = this.ctx.agents.get(targetId)
+              if (!targetAgent) {
+                const resolved = await this.ctx.sessionController.resolveAgent(targetId)
+                if ('agent' in resolved) targetAgent = resolved.agent
+              }
+              if (!targetAgent) targetAgent = grant.agent
               status = targetAgent.status === 'running' ? 'busy' : 'unknown'
               const receipt: { digest: string; status: MobileReceiptStatus } = { digest, status }
               grant.receipts.set(request.id, receipt)
@@ -565,7 +684,7 @@ export class MobileController extends TypertRemoteService {
         grant.channel = undefined
         reject(new Error('mobile transport closed'))
         if (!this.valid(grant) || grant.socket !== socket) return
-        if ([1000, 1008, 1009, 4000, 4001].includes(code) || grant.attempts >= 3) { void this.end(code === 4001 ? 'expired' : 'failed'); return }
+        if ([4000, 4001].includes(code) || grant.attempts >= 3) { void this.end(code === 4001 ? 'expired' : 'failed'); return }
         this.state = { ...this.state, phase: 'reconnecting' }
         grant.retry = setTimeout(() => {
           if (!this.valid(grant)) return
@@ -578,9 +697,13 @@ export class MobileController extends TypertRemoteService {
 
   private reply(grant: Grant, reply: MobileReply): void {
     if (!this.valid(grant) || grant.socket?.readyState !== WebSocket.OPEN) return
-    const text = JSON.stringify(grant.cipher.seal(reply))
-    if (grant.socket.bufferedAmount + Buffer.byteLength(text) > 64 * 1024) { grant.socket.close(1013); return }
-    grant.socket.send(text, (error) => { if (error && this.valid(grant)) grant.socket?.close(1011) })
+    try {
+      const text = JSON.stringify(grant.cipher.seal(reply))
+      if (grant.socket.bufferedAmount + Buffer.byteLength(text) > 64 * 1024) { grant.socket.close(1013); return }
+      grant.socket.send(text, (error) => { if (error && this.valid(grant)) grant.socket?.close(1011) })
+    } catch (error) {
+      this.ctx.logger.warn('mobile reply seal/send failed: %o', error)
+    }
   }
 
   private flush(grant: Grant): void {
@@ -591,8 +714,8 @@ export class MobileController extends TypertRemoteService {
 
       let currentPermissionMode: 'plan' | 'build' | 'auto' | 'yolo' = 'build'
       try {
-        const planMode = this.ctx.get('planMode')
-        const permissionPresets = this.ctx.get('permissionPresets')
+        const planMode = this.ctx.get('planMode') as { loggedActive(session: unknown): boolean } | undefined
+        const permissionPresets = this.ctx.get('permissionPresets') as { current(session: unknown): string } | undefined
         if (planMode && planMode.loggedActive(grant.agent.session)) {
           currentPermissionMode = 'plan'
         } else if (permissionPresets) {
@@ -617,7 +740,7 @@ export class MobileController extends TypertRemoteService {
       } catch {}
       if (!currentModel) {
         try {
-          const def = this.ctx.get('agentDefaultModel')?.currentSelection()
+          const def = (this.ctx.get('agentDefaultModel') as { currentSelection(): { provider: string; model: string } } | undefined)?.currentSelection()
           if (def && typeof def.provider === 'string' && typeof def.model === 'string') {
             currentModel = { provider: def.provider, model: def.model, displayName: def.model }
           }
@@ -636,7 +759,7 @@ export class MobileController extends TypertRemoteService {
       this.reply(grant, {
         type: 'rich_state',
         channel: grant.channel,
-        revision: grant.revision,
+        revision: ++grant.revision,
         expiresAt: grant.expiresAt,
         value: grant.projection.richSnapshot(
           grant.agent.id,
@@ -670,6 +793,7 @@ export class MobileController extends TypertRemoteService {
       this.grant = undefined
       this.pendingRevoke = grant.room
       grant.abort.abort()
+      grant.observeAbort?.abort()
       clearInterval(grant.tick); clearTimeout(grant.retry); clearTimeout(grant.stable)
       grant.cipher.dispose()
       grant.receipts.clear()

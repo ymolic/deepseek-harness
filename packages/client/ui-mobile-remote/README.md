@@ -1,5 +1,5 @@
 ---
-description: "Desktop More menu and explicit Session consent for phone control, including private QR display, refresh, stop, and recoverable errors."
+description: "Web and Desktop pairing controls for full-instance phone consent, private QR display, persistent device status and explicit revocation."
 kind: "package-reference"
 ---
 
@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-More → Phone remote control lets the desktop operator select one Session, acknowledge its existing tool permissions, and display a locally generated single-use QR code. Authorization runs in the Host; this Client owns only transient presentation.
+More → Phone remote control pairs a trusted phone with the whole DSH instance, without selecting a Session. The locally generated QR disappears after pairing. The dialog shows connection status and lets the operator forget the device; closing it does not revoke trust.
 
 ## Table of Contents
 
@@ -23,9 +23,9 @@ More → Phone remote control lets the desktop operator select one Session, ackn
 <a id="use-this-package"></a>
 ## Use this package
 
-The Web application bundle includes the plugin; its UI activates only in Desktop. Configure the [Host controller](../../api/mobile-controller/README.md), open More → Phone remote control, select an existing Session, and acknowledge that messages can use its current tools. Scan the QR code with the phone camera and open the trusted phone page. A missing relay configuration appears in the dialog.
+The Web application bundle includes the plugin for both Web and Desktop. Configure the [Host controller](../../api/mobile-controller/README.md), open More → Phone remote control, and acknowledge full-instance operator access. Session execution permissions remain unchanged. Scan the QR code with the phone camera and open the trusted phone page. A missing relay configuration appears in the dialog.
 
-Close hides the dialog while authorization continues. Refresh QR code revokes the previous phone and ticket before creating a new grant. Stop remote control cancels pending authorization and stops access. A failed server revocation remains visible with a Stop action for retry. Expired QR material is cleared from view; a paired phone does not extend the grant's deadline.
+Close hides the dialog while device trust continues across restarts. Before pairing, Refresh QR code revokes the preceding enrollment before creating a new one. After pairing, the dialog removes the QR and refresh action. Forget device cancels enrollment and stops access. Unconfirmed server removal remains visible for retry. Enrollment expiry does not expire an already paired device.
 
 <a id="understand-the-implementation"></a>
 ## Understand the implementation
@@ -33,7 +33,7 @@ Close hides the dialog while authorization continues. Refresh QR code revokes th
 <details>
 <summary>Implementation internals — click to expand</summary>
 
-The plugin contributes a standard menu row to `settings.launcher.actions` and a shared-store dialog to `shell.overlay`. Locale-owned copy, existing primitives, and the Session catalog supply presentation. The model serializes status reads, suppresses stale responses after mutations, and releases polling and private QR data on unload. It captures the generated Remote namespace at activation. The browser-specific QR library entry prevents Node file writers from entering the Client bundle.
+The plugin contributes a standard menu row to `settings.launcher.actions` and a shared-store dialog to `shell.overlay`. Locale-owned copy and existing primitives supply presentation. The model serializes status reads, suppresses stale responses after mutations, and releases polling and private QR data on unload. It captures the generated Remote namespace at activation. The browser-specific QR library entry prevents Node file writers from entering the Client bundle.
 
 </details>
 
@@ -55,10 +55,10 @@ Dialog state and QR rendering do not change model requests.
 
 <a id="known-limitations-and-deferred-work"></a>
 
-- The QR code is private, transient material. It is unavailable after Client reload; refresh the grant to obtain a new code. Never include a live QR code in screenshots or diagnostics.
-- Phone approvals, attachments, terminals, and workspace management are outside this interface.
+- The QR code is private enrollment material. Never include it in screenshots or diagnostics; paired status must not render it again.
+- This dialog manages trust; the full phone Web client owns sessions, approvals, attachments, terminals and workspace interaction.
 
 <a id="dev-note"></a>
 ### Dev Note
 
-The [authorization decision](../../../.agents/notes/implemented/architecture/2026-10-15-session-scoped-mobile-control.md) records the scope and lifecycle requirements.
+The [authorization decision](../../../.agents/notes/implemented/architecture/2026-10-15-persistent-full-mobile-client.md) records the scope and lifecycle requirements.

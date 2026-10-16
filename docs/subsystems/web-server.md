@@ -143,6 +143,23 @@ authenticatedUrl(baseUrl: string): string
 
 Source: [`packages/client/connection/src/rpc.ts`](../../packages/client/connection/src/rpc.ts)
 
+<a id="ctxfrontendassets--frontendassets"></a>
+
+### `ctx.frontendAssets` — `FrontendAssets`
+
+Built application assets for carriers that have already authenticated instance access.
+
+```ts cordis-catalog
+/**
+ * Read a dist asset or render the application bootstrap document.
+ * @param request - application-relative GET or HEAD request, never an arbitrary filesystem path.
+ * @returns asset response, 403 for traversal, 404 for absent files, or 405 for unsupported methods.
+ */
+fetch(request: Request): Promise<Response>
+```
+
+Source: [`packages/host/frontend-static/src/index.ts`](../../packages/host/frontend-static/src/index.ts)
+
 <a id="ctxwebserver--webserver"></a>
 
 ### `ctx.webServer` — `WebServer`
