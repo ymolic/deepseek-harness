@@ -1,6 +1,6 @@
-/** Window-chrome controls for the fully hidden sidebar (frame shell.leading seat). */
+/** Sidebar reopen and New Session controls for the frame's shell.leading seat. */
 import {
-  IconNewChatOutlineRegular, IconPanelLeftOutlineRegular, Tooltip,
+  focusWithoutRing, IconNewChatOutlineRegular, IconPanelLeftOutlineRegular, Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 // Type-only: pulls the frame's shell.leading slot declaration.
@@ -16,10 +16,8 @@ export type HeaderLeadingControlsProps =
 
 /**
  * Sidebar-open and New Session controls in the frame's window-chrome seat.
- * On macOS desktop a collapsed sidebar hides entirely (no rail), taking both
- * controls off screen; this occupant puts them back beside the traffic
- * lights. The frame mounts the seat only in that state and owns its
- * placement, so the occupant renders unconditionally.
+ * The frame places these controls in phone navigation or beside macOS traffic
+ * lights when the sidebar is hidden. Its modal drawer covers this seat while open.
  * @param props - Injected sidebar actions plus the sidebar locale seat.
  * @returns the two window-chrome controls.
  */
@@ -34,7 +32,11 @@ export function HeaderLeadingControls({ toggleSidebar, startSession, useShortcut
           className={css.iconButton}
           aria-label={t('toggle.open')}
           aria-keyshortcuts={shortcut?.aria}
-          onClick={() => { toggleSidebar() }}
+          onClick={(event) => {
+            // Touch WebKit does not focus buttons before the drawer captures its return target.
+            if (document.activeElement !== event.currentTarget) focusWithoutRing(event.currentTarget)
+            toggleSidebar()
+          }}
         >
           <IconPanelLeftOutlineRegular size={16} />
         </button>

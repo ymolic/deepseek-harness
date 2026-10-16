@@ -36,13 +36,13 @@ it('reserves bottom content height without remounting it on main-panel navigatio
       await page.goto(scaffold.authenticatedUrl)
       await page.locator('[data-shell-bottom]').waitFor({ state: 'attached' })
       const expected: string[] = []
-      const check = async (height: number, caption = 0) => {
+      const check = async (height: number, caption = 0, drawer = false) => {
         await expect.poll(async () => (await geometry(page)).bottom.height).toBe(height)
         const result = await geometry(page)
         const viewportHeight = page.viewportSize()!.height
         expect(result.bottom).toEqual({ top: viewportHeight - height, height, bottom: viewportHeight })
         expect(result.main).toEqual({ top: caption, height: viewportHeight - caption - height, bottom: viewportHeight - height })
-        expect(result.sidebar).toEqual(result.main)
+        expect(result.sidebar).toEqual(drawer ? { top: 0, height: viewportHeight, bottom: viewportHeight } : result.main)
         expect(result.rightbar).toEqual(result.main)
         expect(result.overlay).toEqual({ top: 0, height: viewportHeight, bottom: viewportHeight })
         for (const handle of result.handles) expect(handle).toEqual(result.main)
@@ -74,19 +74,19 @@ it('reserves bottom content height without remounting it on main-panel navigatio
       }
       await page.setViewportSize({ width: 520, height: 600 })
       await expect.poll(() => page.locator('[data-shell-bottom]').locator('..').getAttribute('data-sidebar-collapsed')).toBe('true')
-      expected.push(`narrow: ${JSON.stringify(await check(360))}`)
+      expected.push(`narrow: ${JSON.stringify(await check(360, 44, true))}`)
       scaffold.ctx.loader.remove(entryId)
       await page.locator('[data-bottom-fixture]').waitFor({ state: 'detached' })
-      expected.push(`unregistered: ${JSON.stringify(await check(0))}`)
+      expected.push(`unregistered: ${JSON.stringify(await check(0, 44, true))}`)
       const nextEntryId = await scaffold.ctx.loader.create({ name: '@fixture/layout-bottom' })
       await input.waitFor()
       expect(await input.inputValue()).toBe('')
-      await check(240)
+      await check(240, 44, true)
       await page.getByRole('button', { name: 'Collapse bottom', exact: true }).click()
-      expected.push(`collapsed: ${JSON.stringify(await check(0))}`)
+      expected.push(`collapsed: ${JSON.stringify(await check(0, 44, true))}`)
       scaffold.ctx.loader.remove(nextEntryId)
       await expect.poll(() => page.locator('[data-slot="shell.bottom"] > *').count()).toBe(0)
-      expect(await check(0)).toBeDefined()
+      expect(await check(0, 44, true)).toBeDefined()
       expect(console.pageErrors).toEqual([])
       expect(console.warnings).toEqual([])
       await compareOrRefreshGolden(fileURLToPath(new URL('./expected/layout-bottom/geometry.expected.md', import.meta.url)),

@@ -63,6 +63,31 @@ describe('createLayoutStore', () => {
     expect(store.getSnapshot().layoutInfo).toMatchObject({ sidebar: 400, narrowExpanded: false })
   })
 
+  it('closes the phone drawer on navigation, including repeated Conversation selection', () => {
+    const { store, actions } = createLayoutStore().create()
+    actions.setSidebar(400)
+    actions.setViewportWidth(390)
+    for (const panel of [null, 'plugins' as MainPanelId, null]) {
+      actions.toggleSidebar()
+      expect(store.getSnapshot().layoutInfo.narrowExpanded).toBe(true)
+      actions.selectPanel(panel)
+      expect(store.getSnapshot().layoutInfo).toMatchObject({ sidebar: 400, narrowExpanded: false })
+    }
+  })
+
+  it('drops the manual expansion when entering or leaving the phone drawer range', () => {
+    const { store, actions } = createLayoutStore().create()
+    actions.setViewportWidth(800)
+    actions.toggleSidebar()
+    actions.setViewportWidth(639)
+    expect(store.getSnapshot().layoutInfo.narrowExpanded).toBe(false)
+    actions.toggleSidebar()
+    actions.setViewportWidth(400)
+    expect(store.getSnapshot().layoutInfo.narrowExpanded).toBe(true)
+    actions.setViewportWidth(640)
+    expect(store.getSnapshot().layoutInfo.narrowExpanded).toBe(false)
+  })
+
   it('clears the manual override only when crossing 1024px', () => {
     const { store, actions } = createLayoutStore().create()
     actions.setViewportWidth(980)

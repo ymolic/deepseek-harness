@@ -288,3 +288,46 @@
 .overlayLayer > * {
   pointer-events: auto;
 }
+
+.frame[data-sidebar-drawer] {
+  grid-template-rows: 44px minmax(0, 1fr) auto;
+}
+
+.frame[data-sidebar-drawer] .centerCol {
+  grid-area: 2 / 2;
+}
+
+.frame[data-sidebar-drawer] .rightbarCol {
+  grid-area: 2 / 3;
+}
+
+.frame[data-sidebar-drawer] .bottomRow {
+  grid-row: 3;
+}
+
+.frame[data-sidebar-drawer] .leadingSeat {
+  position: static;
+  grid-area: 1 / 1 / 2 / -1;
+  padding: 0 8px;
+}
+
+/* No transform: descendant fixed-position dialogs retain the viewport as their containing block. */
+.frame[data-sidebar-drawer] .sidebarCol {
+  position: absolute;
+  inset: 0 auto 0 0;
+  z-index: 31;
+  width: var(--dsh-sidebar-drawer-width);
+  box-sizing: border-box;
+  outline: none;
+}
+
+.frame[data-sidebar-drawer][data-sidebar-collapsed] .sidebarCol {
+  visibility: hidden;
+}
+
+.sidebarBackdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  background: var(--dsw-alias-bg-mask-1);
+}

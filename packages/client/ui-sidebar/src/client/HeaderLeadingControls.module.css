@@ -27,3 +27,10 @@
 .iconButton:hover {
   background: var(--dsw-alias-interactive-bg-hover);
 }
+
+@media (pointer: coarse) {
+  .iconButton {
+    width: 36px;
+    height: 36px;
+  }
+}

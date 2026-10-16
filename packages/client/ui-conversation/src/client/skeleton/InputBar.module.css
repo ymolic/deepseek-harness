@@ -76,6 +76,14 @@
   --dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l2);
 }
 
+/* Keep touch editing above iOS's focus-zoom threshold without limiting user zoom. */
+@media (pointer: coarse) {
+  .card {
+    font-size: max(var(--dsw-font-base-16-font-size), var(--dsh-content-font-size, 14px));
+    line-height: calc(1em + 10px);
+  }
+}
+
 /* No-workspace trigger state: an inset 1px dashed outline marks the card as a
    workspace picker rather than a live composer. Keeping the complete stroke
    inside the rounded box prevents clipped corner pixels from reading heavier. */

@@ -264,9 +264,16 @@ it('wires the shell.leading controls to the shared sidebar actions', () => {
   // This occupant only consumes its two actions and locale, not Session hooks.
   const props = { toggleSidebar, startSession, t, useShortcuts: select => select([{ id: 'sidebar.left.toggle' as ShortcutCommandId, label: 'Toggle sidebar', aliases: [], binding: null, modified: false, conflicts: [], issue: null, keys: ['⌘', 'B'], aria: 'Meta+B' }]) } as HeaderLeadingControlsProps
   render(<HeaderLeadingControls {...props} />)
-  fireEvent.click(screen.getByRole('button', { name: en['toggle.open'] }))
+  const opener = screen.getByRole('button', { name: en['toggle.open'] })
+  toggleSidebar.mockImplementation(() => { expect(document.activeElement).toBe(opener) })
+  fireEvent.click(opener)
+  expect(opener.hasAttribute('data-dsh-automatic-focus')).toBe(true)
+  fireEvent.keyDown(opener, { key: 'Tab' })
+  expect(opener.hasAttribute('data-dsh-automatic-focus')).toBe(false)
+  fireEvent.click(opener)
+  expect(opener.hasAttribute('data-dsh-automatic-focus')).toBe(false)
   fireEvent.click(screen.getByRole('button', { name: en['session.new.label'] }))
-  expect(toggleSidebar).toHaveBeenCalledOnce()
+  expect(toggleSidebar).toHaveBeenCalledTimes(2)
   expect(startSession).toHaveBeenCalledOnce()
 })
 

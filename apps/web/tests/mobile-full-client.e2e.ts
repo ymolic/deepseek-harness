@@ -152,7 +152,9 @@ it.runIf(relayRoot).each([
     browser = await engine.launch(engine === chromium
       ? process.env.BROWSER_EXECUTABLE ? { executablePath: process.env.BROWSER_EXECUTABLE } : { channel: 'chrome' }
       : {})
-    const page = await browser.newPage({ viewport: { width: 390, height: 844 }, locale: 'zh-CN' })
+    const page = await browser.newPage({
+      viewport: { width: 390, height: 844 }, locale: 'zh-CN', isMobile: true, hasTouch: true, deviceScaleFactor: 3,
+    })
     const errors: string[] = []
     const diagnostics: string[] = []
     const missingResources: string[] = []
@@ -206,6 +208,82 @@ it.runIf(relayRoot).each([
     await path.press('Enter')
     await directory.getByRole('button', { name: '打开', exact: true }).click()
     await client.locator('[data-composer-input][contenteditable="true"]').waitFor()
+    const geometry = await client.locator('[data-composer-input]').first().evaluate(element => ({
+      fontSize: parseFloat(getComputedStyle(element).fontSize),
+      viewport: window.innerWidth,
+      centerWidth: document.querySelector('[data-slot="main"]')!.parentElement!.getBoundingClientRect().width,
+    }))
+    console.info(`${name} phone input/layout: ${JSON.stringify(geometry)}`)
+    expect(geometry.fontSize).toBeGreaterThanOrEqual(16)
+    expect(geometry.centerWidth).toBe(geometry.viewport)
+    const editor = client.locator('[data-composer-input]').first()
+    const reopen = client.locator('[data-shell-leading]').getByRole('button', { name: '打开侧边栏', exact: true })
+    const drawer = client.getByRole('dialog', { name: '导航', exact: true })
+    for (const width of [320, 390]) {
+      await page.setViewportSize({ width, height: 844 })
+      await expect.poll(() => editor.evaluate(() =>
+        document.querySelector('[data-slot="main"]')!.parentElement!.getBoundingClientRect().width)).toBe(width)
+      expect(await editor.evaluate((element) => {
+        const box = element.getBoundingClientRect()
+        return box.left >= 0 && box.right <= window.innerWidth
+          && document.documentElement.scrollWidth === window.innerWidth
+      })).toBe(true)
+      for (const theme of ['light', 'dark'] as const) {
+        await page.emulateMedia({ colorScheme: theme })
+        await expect.poll(() => client.locator('body').getAttribute('data-ds-dark-theme')).toBe(theme === 'dark' ? '' : null)
+        await editor.click()
+        expect(await editor.evaluate(element => parseFloat(getComputedStyle(element).fontSize))).toBe(16)
+        expect(await page.evaluate(() => window.visualViewport?.scale)).toBe(1)
+        await saveFailureShot(page, `mobile-layout-${name.toLowerCase()}-${width}-${theme}`)
+        await reopen.click()
+        await drawer.waitFor()
+        await drawer.evaluate(async (element) => {
+          await Promise.all(element.getAnimations({ subtree: true })
+            .filter(animation => animation.effect?.getComputedTiming().iterations !== Infinity)
+            .map(animation => animation.finished))
+        })
+        expect(await drawer.evaluate((element) => {
+          const box = element.getBoundingClientRect()
+          return box.left === 0 && box.width <= window.innerWidth - 48
+            && document.querySelector('[data-slot="main"]')!.parentElement!.getBoundingClientRect().width === window.innerWidth
+        })).toBe(true)
+        await saveFailureShot(page, `mobile-drawer-${name.toLowerCase()}-${width}-${theme}`)
+        await drawer.getByRole('button', { name: '设置', exact: true }).click()
+        const settings = client.getByRole('dialog', { name: '设置', exact: true })
+        await settings.waitFor()
+        await settings.getByRole('button', { name: '关闭', exact: true }).click()
+        expect(await drawer.isVisible()).toBe(true)
+        await drawer.getByRole('button', { name: '收起侧边栏', exact: true }).click()
+        await drawer.waitFor({ state: 'hidden' })
+        expect(await reopen.evaluate(element => document.activeElement === element)).toBe(true)
+      }
+    }
+    await page.emulateMedia({ colorScheme: 'light' })
+    await reopen.click()
+    await page.keyboard.press('Escape')
+    await drawer.waitFor({ state: 'hidden' })
+    await reopen.click()
+    await client.locator('[data-sidebar-backdrop]').click({ position: { x: 389, y: 400 } })
+    await drawer.waitFor({ state: 'hidden' })
+    const originalFont = await client.locator('body').evaluate(element => element.style.getPropertyValue('--dsh-content-font-size'))
+    try {
+      await client.locator('body').evaluate((element) => { element.style.setProperty('--dsh-content-font-size', '20px') })
+      expect(await editor.evaluate(element => getComputedStyle(element).fontSize)).toBe('20px')
+    } finally {
+      await client.locator('body').evaluate((element, font) => { element.style.setProperty('--dsh-content-font-size', font) }, originalFont)
+    }
+    const desktop = await browser.newPage({ viewport: { width: 1280, height: 800 }, locale: 'zh-CN' })
+    try {
+      await desktop.goto(scaffold.authenticatedUrl)
+      const desktopInput = desktop.locator('[data-composer-input]').first()
+      await desktopInput.waitFor()
+      expect(await desktopInput.evaluate(element => getComputedStyle(element).fontSize)).toBe('14px')
+      expect(await desktop.locator('[data-slot="sidebar"]').evaluate(element => element.parentElement!.getBoundingClientRect().width)).toBe(280)
+      await desktop.setViewportSize({ width: 800, height: 800 })
+      await expect.poll(() => desktop.locator('[data-slot="sidebar"]').evaluate(element => element.parentElement!.getBoundingClientRect().width)).toBe(56)
+      expect(await desktop.locator('[data-shell-leading]').count()).toBe(0)
+      await saveFailureShot(desktop, `mobile-layout-tablet-${name.toLowerCase()}`)
+    } finally { await desktop.close() }
     await saveFailureShot(page, `mobile-full-client-boot-${name.toLowerCase()}`)
     await client.getByRole('button', { name: /^访问模式/ }).click()
     await client.getByRole('menuitem', { name: '仅可查看', exact: true }).click()
@@ -252,6 +330,10 @@ it.runIf(relayRoot).each([
     }
     console.info(`${name} full-client refresh: ${Math.round(performance.now() - reloadedAt)}ms`)
     expect(session.snapshotEvents().filter(event => event.type === 'user/message' && event.data.source.kind === 'user')).toHaveLength(1)
+    await reopen.click()
+    await drawer.locator(`[data-row-key="session:${sessionId}"]`).click()
+    await drawer.waitFor({ state: 'hidden' })
+    await client.getByText('MESSAGES_WEB_READY', { exact: true }).waitFor()
     const agent = scaffold.ctx.agents.get(sessionId)
     if (!agent) throw new Error('phone Session has no active Agent')
     const interaction = new AbortController()

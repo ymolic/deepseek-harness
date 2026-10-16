@@ -31,6 +31,7 @@ export const zh = {
   'collapse': '收起',
   'expand': '展开',
   'back': '返回',
+  'navigation': '导航',
   'brand.localBuild': 'DSH 本地构建',
   'workspace.defaultName': '默认工作区',
   'unknown': '未知',
