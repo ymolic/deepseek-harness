@@ -209,6 +209,13 @@
   line-height: normal;
 }
 
+/* Keep touch search above iOS's focus-zoom threshold without limiting user zoom. */
+@media (pointer: coarse) {
+  .searchRow .search input {
+    font-size: max(var(--dsw-font-base-16-font-size), var(--dsh-content-font-size, 14px));
+  }
+}
+
 .searchRow .search input::placeholder {
   color: var(--dsw-alias-label-caption);
 }

@@ -137,7 +137,8 @@ it.runIf(relayRoot).each([
     const replayFixture = await selectedSessionFixture(fileURLToPath(new URL('../../../snapshots/web/deepseek-messages-chat/session.v3.jsonl', import.meta.url)), false)
     scaffold = await launchWebScaffold({ extraOverlayPath: overlay, replayFixture, compareReplaySession: false, paceMs: 5,
       replayProviders: [{ id: 'deepseek-messages', name: 'DeepSeek', models: [{ id: 'deepseek-v4-flash', name: 'DeepSeek-V4-Flash',
-        contextWindow: 1000000, defaultMaxTokens: 256000, reasoningEfforts: ['off', 'low', 'high', 'max'], defaultReasoningEffort: 'high' }] }] })
+        contextWindow: 1000000, defaultMaxTokens: 256000, reasoningEfforts: ['off', 'low', 'high', 'max'], defaultReasoningEffort: 'high' },
+      ...Array.from({ length: 4 }, (_, index) => ({ id: `phone-search-${index}`, name: `Phone Search ${index}` }))] }] })
     await scaffold.ctx.agentDefaultModel.saveSelection({ provider: 'deepseek-messages', model: 'deepseek-v4-flash' })
     const transferSize = 9 * 1024 * 1024 + 17
     const transferBytes = Uint8Array.from({ length: transferSize }, (_, index) => index % 251)
@@ -170,6 +171,7 @@ it.runIf(relayRoot).each([
     const traffic = { sent: 0, received: 0, bytesSent: 0, bytesReceived: 0 }
     let stage = 'worker failure'
     page.on('pageerror', error => errors.push(`${stage}: ${error.stack ?? error.message}`))
+    page.on('crash', () => { console.info(`${name} page renderer crashed during ${stage}`) })
     page.on('websocket', (socket) => {
       socket.on('framesent', (event) => { traffic.sent++; traffic.bytesSent += Buffer.byteLength(event.payload) })
       socket.on('framereceived', (event) => { traffic.received++; traffic.bytesReceived += Buffer.byteLength(event.payload) })
@@ -238,12 +240,37 @@ it.runIf(relayRoot).each([
           && document.documentElement.scrollWidth === window.innerWidth
       })).toBe(true)
       for (const theme of ['light', 'dark'] as const) {
+        stage = `model search ${width}px ${theme}`
         await page.emulateMedia({ colorScheme: theme })
         await expect.poll(() => client.locator('body').getAttribute('data-ds-dark-theme')).toBe(theme === 'dark' ? '' : null)
         await editor.click()
         expect(await editor.evaluate(element => parseFloat(getComputedStyle(element).fontSize))).toBe(16)
         expect(await page.evaluate(() => window.visualViewport?.scale)).toBe(1)
         await saveFailureShot(page, `mobile-layout-${name.toLowerCase()}-${width}-${theme}`)
+        await client.getByRole('button', { name: /^选择模型/ }).click()
+        await client.getByRole('menuitem', { name: /^模型/ }).click()
+        const search = client.getByRole('searchbox', { name: '搜索模型…', exact: true })
+        await search.waitFor()
+        expect(await search.evaluate(element => ({
+          fontSize: getComputedStyle(element).fontSize,
+          focused: element.ownerDocument.activeElement === element,
+        }))).toEqual({ fontSize: '16px', focused: true })
+        expect(await page.evaluate(() => window.visualViewport?.scale)).toBe(1)
+        const menu = client.getByRole('group', { name: '模型与推理等级', exact: true })
+        expect(await menu.evaluate((element) => {
+          const box = element.getBoundingClientRect()
+          return box.left >= 12 && box.right <= window.innerWidth - 12
+            && document.documentElement.scrollWidth === window.innerWidth
+        })).toBe(true)
+        await page.keyboard.insertText('Phone Search 3')
+        await expect.poll(() => client.getByRole('menuitemradio').allTextContents()).toEqual(['Phone Search 3'])
+        await client.getByRole('button', { name: '清除搜索', exact: true }).click()
+        expect(await search.inputValue()).toBe('')
+        expect(await client.getByRole('menuitemradio').count()).toBe(5)
+        await saveFailureShot(page, `mobile-model-search-${name.toLowerCase()}-${width}-${theme}`)
+        await client.getByRole('menuitemradio', { name: 'DeepSeek-V4-Flash', exact: true }).click()
+        await menu.waitFor({ state: 'hidden' })
+        expect(await page.evaluate(() => window.visualViewport?.scale)).toBe(1)
         await reopen.click()
         await drawer.waitFor()
         await drawer.evaluate(async (element) => {
@@ -278,6 +305,11 @@ it.runIf(relayRoot).each([
     try {
       await client.locator('body').evaluate((element) => { element.style.setProperty('--dsh-content-font-size', '20px') })
       expect(await editor.evaluate(element => getComputedStyle(element).fontSize)).toBe('20px')
+      await client.getByRole('button', { name: /^选择模型/ }).click()
+      await client.getByRole('menuitem', { name: /^模型/ }).click()
+      const search = client.getByRole('searchbox')
+      expect(await search.evaluate(element => getComputedStyle(element).fontSize)).toBe('20px')
+      await client.getByRole('menuitemradio', { name: 'DeepSeek-V4-Flash', exact: true }).click()
     } finally {
       await client.locator('body').evaluate((element, font) => { element.style.setProperty('--dsh-content-font-size', font) }, originalFont)
     }
@@ -287,6 +319,12 @@ it.runIf(relayRoot).each([
       const desktopInput = desktop.locator('[data-composer-input]').first()
       await desktopInput.waitFor()
       expect(await desktopInput.evaluate(element => getComputedStyle(element).fontSize)).toBe('14px')
+      await desktop.getByRole('button', { name: /^选择模型/ }).click()
+      await desktop.getByRole('menuitem', { name: /^模型/ }).click()
+      const search = desktop.getByRole('searchbox')
+      expect(await search.evaluate(element => getComputedStyle(element).fontSize)).toBe('12px')
+      await search.press('Escape')
+      await desktop.keyboard.press('Escape')
       expect(await desktop.locator('[data-slot="sidebar"]').evaluate(element => element.parentElement!.getBoundingClientRect().width)).toBe(280)
       await desktop.setViewportSize({ width: 800, height: 800 })
       await expect.poll(() => desktop.locator('[data-slot="sidebar"]').evaluate(element => element.parentElement!.getBoundingClientRect().width)).toBe(56)
