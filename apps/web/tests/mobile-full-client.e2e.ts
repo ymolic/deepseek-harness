@@ -107,6 +107,73 @@ const relayRoot = process.env.DSH_MOBILE_RELAY_ROOT
 it.runIf(relayRoot).each([
   { name: 'Chromium', engine: chromium },
   { name: 'WebKit', engine: webkit },
+])('$name clears an early startup failure when the same full application mounts', async ({ engine }) => {
+  const root = await mkdtemp(join(tmpdir(), 'dsh-phone-startup-recovery-'))
+  let relay: { origin: string; close(): Promise<void> } | undefined
+  let scaffold: WebScaffold | undefined
+  let browser: Browser | undefined
+  let failure: unknown
+  try {
+    const fixture: unknown = await import(pathToFileURL(join(relayRoot!, 'server/relay.mjs')).href)
+    if (!isRecord(fixture) || typeof fixture.createRelay !== 'function') throw new Error('relay fixture unavailable')
+    const createRelay = fixture.createRelay as (options: {
+      adminToken: string
+      desktopToken: string
+      origin: string
+      stateFile: string
+      staticDirectory: string
+    }) => Promise<NonNullable<typeof relay>>
+    const desktopToken = randomBytes(32).toString('base64url')
+    const staticDirectory = join(root, 'public')
+    await cp(join(relayRoot!, 'public'), staticDirectory, { recursive: true })
+    const bridgePath = join(staticDirectory, 'full-client.js')
+    await writeFile(bridgePath, `${await readFile(bridgePath, 'utf8')}
+dispatchEvent(new Event('unhandledrejection'));
+parent.document.documentElement.dataset.testStartupFailure = parent.document.querySelector('.full-content').dataset.state;
+`)
+    relay = await createRelay({ adminToken: randomBytes(32).toString('base64url'), desktopToken,
+      origin: 'http://127.0.0.1:0', stateFile: join(root, 'devices.json'), staticDirectory })
+    const overlay = join(root, 'mobile.yml')
+    await writeFile(overlay, `- id: mobile-controller\n  config:\n    enabled: true\n    relayOrigin: ${relay.origin}\n`)
+    scaffold = await launchWebScaffold({ extraOverlayPath: overlay })
+    await scaffold.ctx.credentials.set(credentialRef('DSH_MOBILE_DESKTOP_TOKEN'), desktopToken)
+    const authorization = await scaffold.ctx.mobileController.start({ scope: 'instance', acknowledgeTools: true })
+    const trust = await scaffold.ctx.credentials.readRecord(credentialKey('mobile-controller', 'trusted-device'))
+    browser = await engine.launch(engine === chromium
+      ? process.env.BROWSER_EXECUTABLE ? { executablePath: process.env.BROWSER_EXECUTABLE } : { channel: 'chrome' }
+      : {})
+    const page = await browser.newPage({
+      viewport: { width: 390, height: 844 }, locale: 'zh-CN', isMobile: true, hasTouch: true,
+    })
+    const errors: string[] = []
+    let connections = 0
+    page.on('pageerror', error => errors.push(error.message))
+    page.on('websocket', () => { connections++ })
+    await page.goto(authorization.pairingUrl, { waitUntil: 'domcontentloaded' }).catch(() => { throw new Error('Phone navigation failed') })
+    await page.frameLocator('iframe.full-frame').locator('[data-composer-input]').first().waitFor({ timeout: 90000 })
+    expect(await page.locator('html').getAttribute('data-test-startup-failure')).toBe('failed')
+    await page.locator('.full-content[data-state="ready"]').waitFor()
+    expect(await page.locator('iframe.full-frame').count()).toBe(1)
+    expect(await page.locator('.full-loading').isVisible()).toBe(false)
+    expect(await page.locator('.full-bar [role="status"]').innerText()).toBe('已连接')
+    expect(connections).toBe(1)
+    expect(errors).toEqual([])
+    expect(await scaffold.ctx.credentials.readRecord(credentialKey('mobile-controller', 'trusted-device'))).toEqual(trust)
+  } catch (error) { failure = error }
+  finally {
+    const cleanups = [() => browser?.close(), () => scaffold?.close(), () => relay?.close(),
+      () => rm(root, { recursive: true, force: true })]
+    for (const cleanup of cleanups) {
+      try { await cleanup() }
+      catch (error) { failure = failure === undefined ? error : new AggregateError([failure, error], 'Phone startup recovery and cleanup failed') }
+    }
+  }
+  if (failure !== undefined) throw failure
+})
+
+it.runIf(relayRoot).each([
+  { name: 'Chromium', engine: chromium },
+  { name: 'WebKit', engine: webkit },
 ])('$name boots the complete phone client through the deployable relay and replays a recorded conversation', async ({ engine, name }) => {
   const root = await mkdtemp(join(tmpdir(), 'dsh-full-phone-'))
   let relay: { origin: string; close(): Promise<void> } | undefined
