@@ -11,6 +11,8 @@ import { Config } from '../config.ts'
 import { MobileDialog, MobileMenu } from './MobileDialog.tsx'
 import { MobileModel } from './model.ts'
 import { en, zh, type MobileKey } from './locales.ts'
+import { PhoneConnection } from './PhoneConnection.tsx'
+import { phoneAdapter, type PhoneControl } from './phone.ts'
 
 export { Config } from '../config.ts'
 interface MobileView { open: boolean }
@@ -42,6 +44,15 @@ export const inject = ['slots', 'locale', 'remote', 'remote.mobile']
 export function apply(ctx: Context, config: Config): void {
   const resolved = Config(config)
   ctx.effect(() => ctx.locale.register('mobile.remote', { en, zh }), 'mobile: dictionaries')
+  const control = (globalThis as { __DSH_TRANSPORT__?: { remoteControl?: PhoneControl } }).__DSH_TRANSPORT__?.remoteControl
+  const phone = phoneAdapter(control)
+  if (phone !== undefined) {
+    ctx.effect(() => () => { phone.dispose() }, 'mobile: phone entry handoff')
+    ctx.slots.inject('shell.navigation.actions', () => ctx.slots.register({
+      name: 'shell.navigation.actions', id: 'mobile-connection', locale: 'mobile.remote', inject: () => phone.face,
+    }, PhoneConnection))
+    return
+  }
   const mobile = ctx.remote.mobile
   const model = new MobileModel({
     status: async () => { const result = await mobile.status(); if (!result.ok) throw result.error; return result.value },

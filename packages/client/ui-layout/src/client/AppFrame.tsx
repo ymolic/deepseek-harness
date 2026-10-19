@@ -28,7 +28,7 @@ import css from './AppFrame.module.css'
 /** Full composed props: runtime share + child-slot render share + store share. */
 export type AppFrameProps =
   & PropsRuntime<'root'>
-  & PropsRenderSlots<'sidebar' | 'main' | 'rightbar' | 'shell.bottom' | 'shell.overlay' | 'shell.leading'>
+  & PropsRenderSlots<'sidebar' | 'main' | 'rightbar' | 'shell.bottom' | 'shell.overlay' | 'shell.leading' | 'shell.navigation.actions'>
   & PropsStore<ReturnType<typeof createLayoutStore>>
   & PropsLocale<'common'>
 
@@ -322,6 +322,9 @@ export function AppFrame({
       {leadingMounted && (
         <div className={css.leadingSeat} data-shell-leading aria-hidden={drawerOpen || undefined}>
           {leading}
+          {drawerMode && <div className={css.navigationActions} data-shell-navigation-actions>
+            {renderSlot('shell.navigation.actions', {})}
+          </div>}
         </div>
       )}
       {/* The collapsed rail is fixed-width: no resize handle while closed. */}

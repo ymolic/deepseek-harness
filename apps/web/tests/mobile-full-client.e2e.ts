@@ -4,13 +4,14 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { randomBytes } from 'node:crypto'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { chromium, webkit, type Browser } from 'playwright'
+import { chromium, webkit, type Browser, type Page } from 'playwright'
 import { expect, it, vi } from 'vitest'
 import { credentialKey, credentialRef } from '@deepseek-ai/dsh-credentials'
 import type {} from '@deepseek-ai/dsh-api-mobile-controller'
 import type {} from '@deepseek-ai/dsh-api-terminal-controller'
 import type {} from '@deepseek-ai/dsh-user-approval'
 import type {} from '@deepseek-ai/dsh-user-questions'
+import type { ClientModuleLoaderTarget } from '@deepseek-ai/dsh-client-modules/client'
 import { isRecord } from '@deepseek-ai/dsh-api-mobile-controller/src/protocol.ts'
 import { mobileRelayFixture } from './mobile-relay-fixture.ts'
 import { saveFailureShot } from './support.ts'
@@ -104,10 +105,54 @@ it('pairs without a Session, loads the full application, dispatches real RPC and
 // The deployable relay lives in the operator's infrastructure repository, not this package.
 // Setting its root opts into the real distributor/worker/browser acceptance path.
 const relayRoot = process.env.DSH_MOBILE_RELAY_ROOT
+
+interface PhoneClientObservation {
+  toggle?: (disabled: boolean) => Promise<void>
+}
+
+async function observePhoneClient(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    const observation: PhoneClientObservation = {}
+    Reflect.set(globalThis, '__phoneClientTest', observation)
+    Object.defineProperty(globalThis, '__ModuleLoader__', {
+      configurable: true,
+      set(target: ClientModuleLoaderTarget) {
+        Object.defineProperty(globalThis, '__ModuleLoader__', { configurable: true, writable: true, value: target })
+        let load = target.load.bind(target)
+        const observe: ClientModuleLoaderTarget['load'] = (registration) => {
+          if (registration.id !== '@deepseek-ai/dsh-client-ui-mobile-remote' || registration.chunk !== undefined) {
+            load(registration)
+            return
+          }
+          load({ ...registration, factory(require) {
+            const exports = registration.factory(require)
+            type Entry = { options: { name?: string }; update(config: { disabled: boolean }): Promise<unknown> }
+            type ClientContext = { loader: { entries(): Iterable<Entry> } }
+            const apply = exports.apply as (ctx: ClientContext, config: unknown) => unknown
+            return { ...exports, apply(ctx: ClientContext, config: unknown) {
+              const result = apply(ctx, config)
+              observation.toggle = async (disabled) => {
+                const entry = [...ctx.loader.entries()].find(value => value.options.name === '@deepseek-ai/dsh-client-ui-mobile-remote')
+                if (!entry) throw new Error('Phone UI Loader entry missing')
+                await entry.update({ disabled })
+              }
+              return result
+            } }
+          } })
+        }
+        Object.defineProperty(target, 'load', {
+          configurable: true, get: () => observe,
+          set(next: ClientModuleLoaderTarget['load']) { load = next.bind(target) },
+        })
+      },
+    })
+  })
+}
+
 it.runIf(relayRoot).each([
   { name: 'Chromium', engine: chromium },
   { name: 'WebKit', engine: webkit },
-])('$name clears an early startup failure when the same full application mounts', async ({ engine }) => {
+])('$name clears an early startup failure and hands off connection controls with real Loader cleanup', async ({ engine, name }) => {
   const root = await mkdtemp(join(tmpdir(), 'dsh-phone-startup-recovery-'))
   let relay: { origin: string; close(): Promise<void> } | undefined
   let scaffold: WebScaffold | undefined
@@ -142,9 +187,11 @@ parent.document.documentElement.dataset.testStartupFailure = parent.document.que
     browser = await engine.launch(engine === chromium
       ? process.env.BROWSER_EXECUTABLE ? { executablePath: process.env.BROWSER_EXECUTABLE } : { channel: 'chrome' }
       : {})
-    const page = await browser.newPage({
+    const context = await browser.newContext({
       viewport: { width: 390, height: 844 }, locale: 'zh-CN', isMobile: true, hasTouch: true,
     })
+    const page = await context.newPage()
+    await observePhoneClient(page)
     const errors: string[] = []
     let connections = 0
     page.on('pageerror', error => errors.push(error.message))
@@ -155,14 +202,133 @@ parent.document.documentElement.dataset.testStartupFailure = parent.document.que
     await page.locator('.full-content[data-state="ready"]').waitFor()
     expect(await page.locator('iframe.full-frame').count()).toBe(1)
     expect(await page.locator('.full-loading').isVisible()).toBe(false)
-    expect(await page.locator('.full-bar [role="status"]').innerText()).toBe('已连接')
+    expect(await page.locator('.full-bar [role="status"]').textContent()).toBe('已连接')
     expect(connections).toBe(1)
-    expect(errors).toEqual([])
     expect(await scaffold.ctx.credentials.readRecord(credentialKey('mobile-controller', 'trusted-device'))).toEqual(trust)
+    const client = page.frameLocator('iframe.full-frame')
+    const button = client.getByRole('button', { name: '远程连接: 已连接', exact: true })
+    await button.waitFor()
+    await expect.poll(() => page.locator('.full-bar').isVisible()).toBe(false)
+    const frame = await page.locator('iframe.full-frame').elementHandle()
+    await client.getByRole('textbox', { name: '选择工作区' }).click()
+    const directory = client.getByRole('dialog', { name: '选择工作区目录' })
+    await directory.getByRole('button', { name: '编辑路径' }).click()
+    await directory.getByRole('textbox', { name: '编辑路径' }).fill(scaffold.workspaceCwd)
+    await directory.getByRole('textbox', { name: '编辑路径' }).press('Enter')
+    await directory.getByRole('button', { name: '打开', exact: true }).click()
+    await client.locator('[data-composer-input][contenteditable="true"]').waitFor()
+    const editor = client.locator('[data-composer-input]').first()
+    await editor.fill('UNSENT_CONNECTION_DRAFT')
+    const toggle = async (disabled: boolean) => {
+      await client.locator('body').evaluate(async (_element, disabled) => {
+        await (Reflect.get(globalThis, '__phoneClientTest') as PhoneClientObservation).toggle!(disabled)
+      }, disabled)
+    }
+    // Disable the actual Loader entry: a new relay with no usable inner entry keeps its old controls.
+    await toggle(true)
+    await expect.poll(() => page.locator('.full-bar').isVisible()).toBe(true)
+    const fallbackHeight = await page.locator('.full-bar').evaluate(element => element.getBoundingClientRect().height)
+    const fallbackFrameHeight = await page.locator('iframe.full-frame').evaluate(element => element.getBoundingClientRect().height)
+    expect(await page.locator('iframe.full-frame').evaluate((element, previous) => element === previous, frame)).toBe(true)
+    await toggle(false)
+    await button.waitFor()
+    await expect.poll(() => page.locator('.full-bar').evaluate(element => element.getBoundingClientRect().height)).toBe(0)
+    const fullHeight = await page.locator('iframe.full-frame').evaluate(element => element.getBoundingClientRect().height)
+    expect(fullHeight - fallbackFrameHeight).toBe(fallbackHeight)
+    console.info(`${name} connection header reclaimed: ${fallbackHeight} CSS px`)
+    expect(await editor.innerText()).toContain('UNSENT_CONNECTION_DRAFT')
+    const panel = client.getByRole('dialog', { name: '远程连接', exact: true })
+    for (const width of [390, 320]) {
+      for (const theme of ['light', 'dark'] as const) {
+        await page.setViewportSize({ width, height: 844 })
+        await page.emulateMedia({ colorScheme: theme })
+        await expect.poll(() => client.locator('body').getAttribute('data-ds-dark-theme')).toBe(theme === 'dark' ? '' : null)
+        await button.click()
+        await panel.waitFor()
+        expect(await panel.evaluate(element => element.contains(document.activeElement))).toBe(true)
+        expect(await button.evaluate(element => element.getBoundingClientRect().height)).toBeGreaterThanOrEqual(44)
+        expect(await client.locator('[data-shell-leading]').evaluate(element => element.getBoundingClientRect().height)).toBe(44)
+        expect(await panel.evaluate((element) => {
+          const rect = element.getBoundingClientRect()
+          return rect.left >= 0 && rect.right <= innerWidth && rect.bottom <= innerHeight
+            && document.documentElement.scrollWidth === innerWidth
+        })).toBe(true)
+        await panel.evaluate(async (element) => {
+          await Promise.all(element.parentElement!.getAnimations({ subtree: true })
+            .filter(animation => animation.effect?.getComputedTiming().iterations !== Infinity)
+            .map(animation => animation.finished))
+        })
+        await saveFailureShot(page, `mobile-connection-${name.toLowerCase()}-${width}-${theme}`)
+        await panel.getByRole('button', { name: '忘记此设备…', exact: true }).click()
+        const confirmation = client.getByRole('dialog', { name: '忘记此设备？', exact: true })
+        await confirmation.getByText(/之后需要在桌面重新生成二维码并扫码连接/).waitFor()
+        await confirmation.getByRole('button', { name: '取消', exact: true }).click()
+        expect(connections).toBe(1)
+        expect(await scaffold.ctx.credentials.readRecord(credentialKey('mobile-controller', 'trusted-device'))).toEqual(trust)
+        await page.keyboard.press('Escape')
+        await panel.waitFor({ state: 'hidden' })
+        expect(await button.evaluate(element => element === document.activeElement)).toBe(true)
+      }
+    }
+    await page.setViewportSize({ width: 844, height: 390 })
+    await page.locator('.full-bar').waitFor()
+    await page.setViewportSize({ width: 390, height: 430 })
+    await button.waitFor()
+    await expect.poll(() => page.locator('.full-bar').isVisible()).toBe(false)
+    expect(await editor.innerText()).toContain('UNSENT_CONNECTION_DRAFT')
+    await button.click()
+    await panel.getByRole('button', { name: '关闭', exact: true }).click()
+    await button.click()
+    // The shared mask intercepts a background click without focusing the editor.
+    await client.locator('[role="presentation"]').last().click({ position: { x: 5, y: 5 } })
+    await panel.waitFor({ state: 'hidden' })
+    expect(await button.evaluate(element => element === document.activeElement)).toBe(true)
+    await button.click()
+    await panel.getByRole('button', { name: '重新连接', exact: true }).click()
+    await expect.poll(() => connections).toBe(2)
+    await button.waitFor()
+    expect(await page.locator('iframe.full-frame').evaluate((element, previous) => element === previous, frame)).toBe(true)
+    expect(await editor.innerText()).toContain('UNSENT_CONNECTION_DRAFT')
+    await panel.getByRole('button', { name: '关闭', exact: true }).click()
+    await button.click()
+    await panel.locator('p').last().evaluate((element) => { element.textContent = 'SYNTHETIC_CONNECTION_REASON_'.repeat(160) })
+    expect(await panel.evaluate((element) => {
+      const body = element.lastElementChild!
+      const rect = element.getBoundingClientRect()
+      return body.scrollHeight > body.clientHeight && rect.top >= 0 && rect.bottom <= innerHeight
+    })).toBe(true)
+    await panel.getByRole('button', { name: '关闭', exact: true }).click()
+    const replacement = await page.context().newPage()
+    try {
+      await replacement.goto(relay.origin)
+      await replacement.frameLocator('iframe.full-frame').getByRole('button', { name: '远程连接: 已连接', exact: true }).waitFor({ timeout: 90000 })
+      await client.getByRole('button', { name: '远程连接: 已在其他页面打开', exact: true }).waitFor()
+      await client.getByRole('button', { name: '远程连接: 已在其他页面打开', exact: true }).click()
+      expect(await panel.getByRole('button', { name: '重新连接' }).count()).toBe(0)
+      expect(await panel.getByText(/本页不会争抢重连/).isVisible()).toBe(true)
+      expect(connections).toBe(2)
+      await panel.getByRole('button', { name: '关闭', exact: true }).click()
+    } finally { await replacement.close() }
+    await page.route('**/forget', route => route.fulfill({ status: 503, body: '' }))
+    await client.getByRole('button', { name: '远程连接: 已在其他页面打开', exact: true }).click()
+    await panel.getByRole('button', { name: '忘记此设备…', exact: true }).click()
+    await client.getByRole('dialog', { name: '忘记此设备？' }).getByRole('button', { name: '撤销设备信任' }).click()
+    await client.getByRole('button', { name: '远程连接: 撤销未确认', exact: true }).waitFor()
+    expect(await panel.getByRole('button', { name: '重新连接' }).count()).toBe(0)
+    expect(await panel.getByText(/服务器尚未确认撤销/).isVisible()).toBe(true)
+    expect(await page.locator('.full-bar').isVisible()).toBe(false)
+    await page.unroute('**/forget')
+    await panel.getByRole('button', { name: '忘记此设备…', exact: true }).click()
+    await client.getByRole('dialog', { name: '忘记此设备？' }).getByRole('button', { name: '撤销设备信任' }).click()
+    await page.locator('.full-bar').getByText('请在桌面重新生成二维码并扫码', { exact: true }).waitFor()
+    expect(await page.locator('iframe.full-frame').count()).toBe(0)
+    expect(errors).toEqual([])
   } catch (error) { failure = error }
   finally {
-    const cleanups = [() => browser?.close(), () => scaffold?.close(), () => relay?.close(),
-      () => rm(root, { recursive: true, force: true })]
+    const cleanups = [async () => {
+      if (scaffold && !(await scaffold.ctx.mobileController.stop()).relayRevoked) throw new Error('Temporary trust revocation unconfirmed')
+    }, () => browser?.close(), () => scaffold?.close(), () => relay?.close(),
+    () => rm(root, { recursive: true, force: true })]
     for (const cleanup of cleanups) {
       try { await cleanup() }
       catch (error) { failure = failure === undefined ? error : new AggregateError([failure, error], 'Phone startup recovery and cleanup failed') }
@@ -274,6 +440,8 @@ it.runIf(relayRoot).each([
     }
     expect(await page.locator('.full-content').getAttribute('data-state')).toBe('ready')
     expect(await page.locator('.full-loading').isVisible()).toBe(false)
+    await client.getByRole('button', { name: '远程连接: 已连接', exact: true }).waitFor()
+    expect(await page.locator('.full-bar').isVisible()).toBe(false)
     console.info(`${name} full-client cold boot: ${Math.round(performance.now() - startedAt)}ms`)
     expect(new URL(page.url()).hash).toBe('')
     expect(scaffold.ctx.mobileController.status().pairingUrl).toBeUndefined()
@@ -385,6 +553,7 @@ it.runIf(relayRoot).each([
       await desktop.goto(scaffold.authenticatedUrl)
       const desktopInput = desktop.locator('[data-composer-input]').first()
       await desktopInput.waitFor()
+      expect(await desktop.getByRole('button', { name: /^远程连接:/ }).count()).toBe(0)
       expect(await desktopInput.evaluate(element => getComputedStyle(element).fontSize)).toBe('14px')
       await desktop.getByRole('button', { name: /^选择模型/ }).click()
       await desktop.getByRole('menuitem', { name: /^模型/ }).click()
@@ -396,6 +565,9 @@ it.runIf(relayRoot).each([
       await desktop.setViewportSize({ width: 800, height: 800 })
       await expect.poll(() => desktop.locator('[data-slot="sidebar"]').evaluate(element => element.parentElement!.getBoundingClientRect().width)).toBe(56)
       expect(await desktop.locator('[data-shell-leading]').count()).toBe(0)
+      await desktop.setViewportSize({ width: 390, height: 844 })
+      await desktop.locator('[data-shell-leading]').waitFor()
+      expect(await desktop.getByRole('button', { name: /^远程连接:/ }).count()).toBe(0)
       await saveFailureShot(desktop, `mobile-layout-tablet-${name.toLowerCase()}`)
     } finally { await desktop.close() }
     await saveFailureShot(page, `mobile-full-client-boot-${name.toLowerCase()}`)
@@ -425,6 +597,15 @@ it.runIf(relayRoot).each([
     await input.press('Enter')
     const sessionId = await settled
     await client.getByText('MESSAGES_WEB_READY', { exact: true }).waitFor()
+    const connectionButton = client.getByRole('button', { name: '远程连接: 已连接', exact: true })
+    await connectionButton.click()
+    const connectionPanel = client.getByRole('dialog', { name: '远程连接', exact: true })
+    await compareOrRefreshGolden(fileURLToPath(new URL('./expected/mobile-connection.json', import.meta.url)),
+      JSON.stringify({
+        status: await connectionButton.innerText(),
+        panel: await connectionPanel.innerText(),
+      }, null, 2), webSnapshotMode())
+    await connectionPanel.getByRole('button', { name: '关闭', exact: true }).click()
     const session = scaffold.ctx.sessions.get(sessionId)!
     const selectedBeforeReload = await client.locator('body').evaluate(() => localStorage.getItem('dsh.sessions.current'))
     await compareOrRefreshGolden(fileURLToPath(new URL('../../../snapshots/web/mobile-remote/chat.expected.json', import.meta.url)),
@@ -518,19 +699,21 @@ it.runIf(relayRoot).each([
     const mobileEntry = [...scaffold.ctx.loader.entries()].find(entry => entry.options.id === 'mobile-controller')
     if (!mobileEntry) throw new Error('phone controller Loader entry unavailable')
     await mobileEntry.update({ disabled: true })
-    await page.getByRole('status').getByText('桌面暂时离线，正在自动重连', { exact: true }).waitFor()
+    await client.getByRole('button', { name: '远程连接: 已断开', exact: true }).waitFor()
     await mobileEntry.update({ disabled: false })
-    await page.getByRole('status').getByText('已连接', { exact: true }).waitFor()
+    await client.getByRole('button', { name: '远程连接: 已连接', exact: true }).waitFor()
     await terminal.waitFor()
     expect(session.snapshotEvents().filter(event => event.type === 'user/message' && event.data.source.kind === 'user')).toHaveLength(1)
     expect(errors, JSON.stringify({ diagnostics, missingResources })).toEqual([])
     expect(missingResources).toEqual([])
     expect((await scaffold.ctx.mobileController.stop()).relayRevoked).toBe(true)
-    await page.getByRole('status').getByText('请在桌面重新生成二维码并扫码', { exact: true }).waitFor()
+    await client.getByRole('button', { name: '远程连接: 需重新配对', exact: true }).waitFor()
   } catch (error) { failure = error }
   finally {
-    const cleanups = [() => browser?.close(), () => scaffold?.close(), () => relay?.close(),
-      () => rm(root, { recursive: true, force: true })]
+    const cleanups = [async () => {
+      if (scaffold && !(await scaffold.ctx.mobileController.stop()).relayRevoked) throw new Error('Temporary trust revocation unconfirmed')
+    }, () => browser?.close(), () => scaffold?.close(), () => relay?.close(),
+    () => rm(root, { recursive: true, force: true })]
     for (const cleanup of cleanups) {
       try { await cleanup() }
       catch (error) { failure = failure === undefined ? error : new AggregateError([failure, error], 'Phone acceptance and cleanup failed') }

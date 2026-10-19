@@ -11,6 +11,8 @@ English | [中文](README.zh.md)
 
 More → Phone remote control pairs a trusted phone with the whole DSH instance, without selecting a Session. The locally generated QR disappears after pairing. The dialog shows connection status and lets the operator forget the device; closing it does not revoke trust.
 
+On a supported phone connection, the navigation status opens Remote connection. Reconnect retains the mounted chat and unsent draft. Forget this device requires confirmation and a new scan afterward; unconfirmed revocation stays visible with a retry action.
+
 ## Table of Contents
 
 - [Use this package](#use-this-package)
@@ -27,6 +29,8 @@ The Web application bundle includes the plugin for both Web and Desktop. Configu
 
 Close hides the dialog while device trust continues across restarts. Before pairing, Refresh QR code revokes the preceding enrollment before creating a new one. After pairing, the dialog removes the QR and refresh action. Forget device cancels enrollment and stops access. Unconfirmed server removal remains visible for retry. Enrollment expiry does not expire an already paired device.
 
+On the phone, Remote connection opens a bottom-aligned modal. Close, Escape and the backdrop dismiss it without reconnecting; focus returns to the status button. Disconnected, pairing-required, replaced-page and uncertain-revocation states remain in that same navigation position. A replaced page cannot reconnect. The outer relay retains its controls until the application and the inner entry are both usable, and restores them when the entry disappears.
+
 <a id="understand-the-implementation"></a>
 ## Understand the implementation
 
@@ -34,6 +38,8 @@ Close hides the dialog while device trust continues across restarts. Before pair
 <summary>Implementation internals — click to expand</summary>
 
 The plugin contributes a standard menu row to `settings.launcher.actions` and a shared-store dialog to `shell.overlay`. Locale-owned copy and existing primitives supply presentation. The model serializes status reads, suppresses stale responses after mutations, and releases polling and private QR data on unload. It captures the generated Remote namespace at activation. The browser-specific QR library entry prevents Node file writers from entering the Client bundle.
+
+The existing trusted transport may expose optional `remoteControl` callbacks and an identity-stable connection observable. In that case the plugin contributes only a `shell.navigation.actions` entry, not desktop enrollment or polling. The registration injects the source and restricted actions; its ref reports the mounted button and releases the relay handoff on unmount or plugin disposal. The outer shell remains the connection owner. Older relays omit this capability and retain their outer controls.
 
 </details>
 
@@ -45,7 +51,7 @@ The [account menu](../ui-settings-account/README.md) owns the launcher slot; the
 <a id="model-experience"></a>
 ## Model Experience
 
-None, as this plugin displays desktop authorization controls without contributing model input.
+None, as this plugin displays authorization and connection controls without contributing model input.
 
 #### KV Cache effect
 

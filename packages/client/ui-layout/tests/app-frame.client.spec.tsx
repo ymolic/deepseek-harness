@@ -243,6 +243,7 @@ describe('AppFrame', () => {
       // The caption row keeps the reopen controls; the darwin-only
       // shell.leading seat must not mount a duplicate set.
       expect(queryByTestId('shell.leading-content')).toBeNull()
+      expect(queryByTestId('shell.navigation.actions-content')).toBeNull()
     } finally {
       document.documentElement.removeAttribute('data-windows-titlebar')
     }
@@ -272,6 +273,7 @@ describe('AppFrame', () => {
     expect(sidebarOwner()).toEqual({ collapsed: true, width: 0 })
     expect(frame.querySelector('[data-shell-leading]')).not.toBeNull()
     expect(queryByTestId('shell.leading-content')).toBeTruthy()
+    expect(queryByTestId('shell.navigation.actions-content')).toBeNull()
     act(() => { instance.actions.toggleSidebar() })
     expect(queryByTestId('shell.leading-content')).toBeNull()
   })
@@ -303,6 +305,7 @@ describe('AppFrame normal width concessions', () => {
     expect(sidebarOwner()).toEqual({ collapsed: true, width: 0 })
     expect(getByTestId('sidebar-content').parentElement?.hasAttribute('inert')).toBe(true)
     expect(getByTestId('shell.leading-content').querySelector('button')).not.toBeNull()
+    expect(getByTestId('shell.navigation.actions-content').closest('[data-shell-leading]')).not.toBeNull()
   })
 
   it('opens a phone drawer without shrinking the center and restores focus after Escape or outside dismissal', () => {
@@ -346,6 +349,7 @@ describe('AppFrame normal width concessions', () => {
     resize(800)
     expect(tracks(frame)).toEqual([56, 0])
     expect(queryByTestId('shell.leading-content')).toBeNull()
+    expect(queryByTestId('shell.navigation.actions-content')).toBeNull()
     expect(frame.querySelector('[inert]')).toBeNull()
     resize(1920)
     expect(tracks(frame)).toEqual([420, 0])

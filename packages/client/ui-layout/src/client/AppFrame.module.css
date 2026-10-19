@@ -308,7 +308,17 @@
 .frame[data-sidebar-drawer] .leadingSeat {
   position: static;
   grid-area: 1 / 1 / 2 / -1;
-  padding: 0 8px;
+  min-width: 0;
+  gap: 8px;
+  padding: 0 max(8px, env(safe-area-inset-right)) 0 max(8px, env(safe-area-inset-left));
+}
+
+.navigationActions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  max-height: 44px;
 }
 
 /* No transform: descendant fixed-position dialogs retain the viewport as their containing block. */

@@ -117,6 +117,8 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      * the lights or the controls.
      */
     'shell.leading': { kind: 'single'; scope: 'root' }
+    /** Additive actions in the phone navigation row; absent in native window chrome. */
+    'shell.navigation.actions': { kind: 'list'; scope: 'root' }
   }
 }
 
@@ -185,6 +187,7 @@ export function apply(ctx: ClientContext): void {
         'shell.bottom': { kind: 'single', scope: 'root' },
         'shell.overlay': { kind: 'list', scope: 'root' },
         'shell.leading': { kind: 'single', scope: 'root' },
+        'shell.navigation.actions': { kind: 'list', scope: 'root' },
       },
       store,
     }, AppFrame)

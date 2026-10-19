@@ -91,6 +91,7 @@ describe('ui-layout client apply', () => {
     expect(slots.spec('shell.bottom')).toEqual({ kind: 'single', scope: 'root' })
     expect(slots.spec('shell.overlay')).toEqual({ kind: 'list', scope: 'root' })
     expect(slots.spec('shell.leading')).toEqual({ kind: 'single', scope: 'root' })
+    expect(slots.spec('shell.navigation.actions')).toEqual({ kind: 'list', scope: 'root' })
   })
 
   it('shares a pre-created instance between service actions, root rendering, and panelInfo', async () => {
