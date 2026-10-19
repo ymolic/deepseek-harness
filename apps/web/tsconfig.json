@@ -23,6 +23,8 @@
   // cannot see both sides of the cordis Context merges).
   "exclude": [
     "tests/mobile-full-client.e2e.ts",
+    "tests/mobile-transport.e2e.ts",
+    "tests/mobile-transport.perf.ts",
     "tests/mobile-remote.e2e.ts",
     "tests/mobile-relay-fixture.ts",
     "tests/collapse-timing.e2e.ts",

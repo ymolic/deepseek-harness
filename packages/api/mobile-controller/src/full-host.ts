@@ -9,6 +9,7 @@ import { MobileCipher, isRecord, MOBILE_WIRE } from './protocol.ts'
 import { closeDevice, connectDevice, createRoom, revokeRoom } from './relay-client.ts'
 import { FullPackets, fullDownloadWindow } from './full-packets.ts'
 import { FullCarrier } from './full-carrier.ts'
+import { binaryRelaySupport } from './full-binary.ts'
 import type { MobileDesktopState, MobileStartResult } from './types.ts'
 
 const KEY = credentialKey('mobile-controller', 'trusted-device')
@@ -232,47 +233,57 @@ export class FullMobileHost {
     })
     let received = Promise.resolve()
     let fragmentWindow = fullDownloadWindow(undefined, this.config.fullFragmentWindow)
+    let relayBinary = false, offeredBinary = false, binaryTransport = false
     socket.on('message', (bytes, binary) => {
       received = received.then(async () => {
         if (this.socket !== socket || this.disposed || this.saved?.revoked) return
         const data = Array.isArray(bytes) ? Buffer.concat(bytes) : Buffer.isBuffer(bytes) ? bytes : Buffer.from(bytes)
-        if (binary || data.length > MOBILE_WIRE.maxWireBytes) throw new Error('invalid frame')
-        const value: unknown = JSON.parse(data.toString('utf8'))
+        if (data.length > MOBILE_WIRE.maxWireBytes) throw new Error('invalid frame')
+        const value: unknown = binary ? data : JSON.parse(data.toString('utf8'))
         if (isRecord(value) && value.type === 'status') {
           if (value.protocol !== 2 || value.mode !== 'full-client-e2ee') throw new Error('relay upgrade required')
           fragmentWindow = fullDownloadWindow(value.fullFragmentWindow, this.config.fullFragmentWindow)
+          relayBinary = binaryRelaySupport(value.envelope)
           this.state = { ...this.state, phase: value.paired === true ? 'paired' : 'waiting', mobileOnline: value.mobileOnline === true,
             ...(value.paired === true ? { pairingUrl: undefined, ticketExpiresAt: null } : {}) }
-          if (!value.mobileOnline) { this.clearTraffic(); return }
+          if (!value.mobileOnline) { this.clearTraffic(); binaryTransport = offeredBinary = false; return }
           if (!this.nonce) {
             this.clearTraffic()
             this.nonce = randomBytes(16).toString('base64url')
             this.root = new MobileCipher(Buffer.from(saved.secret, 'base64url'), saved.room.roomId)
-            await this.transmit(socket, this.root, { type: 'challenge', nonce: this.nonce, protocol: 2 })
+            offeredBinary = relayBinary
+            await this.transmit(socket, this.root, { type: 'challenge', nonce: this.nonce, protocol: 2,
+              ...(offeredBinary ? { transport: ['binary-v1'] } : {}) })
           }
           return
         }
         if (!this.traffic) {
           const auth = this.root?.open(value)
-          if (!isRecord(auth) || auth.type !== 'authenticate' || Object.keys(auth).length !== 3 || auth.nonce !== this.nonce
+          if (binary || !isRecord(auth) || auth.type !== 'authenticate'
+            || Object.keys(auth).length !== (auth.transport === undefined ? 3 : 4) || auth.nonce !== this.nonce
             || typeof auth.clientNonce !== 'string' || !/^[A-Za-z0-9_-]{22}$/.test(auth.clientNonce)) throw new Error('authentication failed')
+          if (auth.transport !== undefined && (auth.transport !== 'binary-v1' || !offeredBinary)) throw new Error('invalid transport selection')
+          binaryTransport = auth.transport === 'binary-v1'
+          const raw = binaryTransport
           const traffic = new MobileCipher(Buffer.from(saved.secret, 'base64url'), `${saved.room.roomId}:${this.nonce}:${auth.clientNonce}`)
           this.traffic = traffic
-          const packets = new FullPackets(frame => this.transmit(socket, traffic, frame),
-            (frame) => { carrier.accept(frame) }, fragmentWindow)
+          const packets = new FullPackets(frame => this.transmit(socket, traffic, frame, raw),
+            (frame) => { carrier.accept(frame) }, fragmentWindow, raw)
           // The paired device keeps one owner-identity Peer across reconnects.
           this.peer ??= this.ctx.connection.createPeer({ principal: { kind: 'owner' } })
           const carrier = new FullCarrier(this.ctx, frame => packets.send(frame).catch((error: unknown) => {
             if (this.socket === socket) socket.close(1011)
             throw error
-          }), this.peer)
+          }), this.peer, raw)
           this.packets = packets
           this.carrier = carrier
           this.attempts = 0
-          await this.transmit(socket, traffic, { type: 'ready', protocol: 2 })
+          await this.transmit(socket, traffic, { type: 'ready', protocol: 2,
+            ...(binaryTransport ? { transport: 'binary-v1' } : {}) })
           return
         }
-        const plain = this.traffic.open(value)
+        if (binary !== binaryTransport) throw new Error('unexpected envelope')
+        const plain = binary ? this.traffic.openBinary(data) : this.traffic.open(value)
         if (plain !== undefined) await this.packets?.accept(plain)
       }).catch((_error: unknown) => {
         // Authentication or framing failure invalidates this connection, not durable device trust.
@@ -307,9 +318,9 @@ export class FullMobileHost {
     return !this.disposed && this.saved === saved && !saved.revoked
   }
 
-  private transmit(socket: WebSocket, cipher: MobileCipher, value: object): Promise<void> {
+  private transmit(socket: WebSocket, cipher: MobileCipher, value: object, binary = false): Promise<void> {
     if (this.socket !== socket || socket.readyState !== WebSocket.OPEN || this.disposed || this.saved?.revoked) return Promise.reject(new Error('connection closed'))
-    const text = JSON.stringify(cipher.seal(value))
+    const text = binary ? cipher.sealBinary(value) : JSON.stringify(cipher.seal(value))
     if (socket.bufferedAmount + Buffer.byteLength(text) > 256 * 1024) return Promise.reject(new Error('transport capacity'))
     return new Promise((resolve, reject) => { socket.send(text, (error) => { if (error) reject(new Error('transport unavailable')); else resolve() }) })
   }

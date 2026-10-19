@@ -43,6 +43,8 @@ Web 应用 bundle 包含此控制器，默认禁用。在桌面 profile 的 `cor
 
 所有并发下载包共用有界窗口；`fullFragmentWindow` 配置未确认分片数，范围 1-32，默认 32。Host 采用配置与中继声明两者中较小的限制；未声明窗口的旧中继仍限八分片。手机上传保留独立的八分片窗口。兼容中继允许包含加密封装在内最多 1 MiB 的完整客户端 socket 缓冲，超限即断开。单分片限制、按需响应块与取消机制不变；确认回执分别完成各次发送，不要求每个包之间再等待一次网络往返。
 
+当中继声明二进制支持，且手机选择 Host 已认证的能力提议时，两端在旧格式 JSON 加密的 Ready 之后使用 binary-v1。原始 body、分片和加密信封避免 base64 放大；AAD 绑定完整头字段、流量上下文和发送方向。旧端继续使用 JSON。畸形声明、混用编码或认证失败会关闭连接，不重放操作。下载拉取仍为 192 KiB，上传拉取为 48 KiB，分片载荷为 12000 字节，Host/手机发送检查仍为 256 KiB；此编码改造不扩大窗口或引入字节授信。
+
 </details>
 
 <a id="further-exploration"></a>
@@ -69,4 +71,4 @@ Web 应用 bundle 包含此控制器，默认禁用。在桌面 profile 的 `cor
 <a id="dev-note"></a>
 ### 开发备注
 
-[决策](../../../.agents/notes/implemented/architecture/2026-10-15-persistent-full-mobile-client.zh.md) 维护授权与恢复取舍。真实 Loader 和可选部署中继浏览器检查位于 [mobile-full-client.e2e.ts](../../../apps/web/tests/mobile-full-client.e2e.ts)。
+[决策](../../../.agents/notes/implemented/architecture/2026-10-15-persistent-full-mobile-client.zh.md) 维护授权与恢复取舍。[mobile-full-client.e2e.ts](../../../apps/web/tests/mobile-full-client.e2e.ts) 维护录制应用流程；[mobile-transport.e2e.ts](../../../apps/web/tests/mobile-transport.e2e.ts) 检查编码与可选的冻结旧版 checkout，[mobile-transport.perf.ts](../../../apps/web/tests/mobile-transport.perf.ts) 提供同构建 JSON/二进制手动测量。

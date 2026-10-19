@@ -43,6 +43,8 @@ Closing the QR dialog only hides it. Host unload closes connections without revo
 
 One shared window bounds concurrent download packets; `fullFragmentWindow` configures 1-32 unacknowledged fragments and defaults to 32. The Host uses the smaller configured and relay-advertised limit; older relays without that advertisement retain eight-fragment admission. Phone uploads retain an independent eight-fragment window. A compatible relay allows up to 1 MiB of full-client socket buffering, including encrypted framing, and disconnects excess buffering. Per-fragment limits, demand-driven response blocks and cancellation remain unchanged; acknowledgements settle each send without a separate round trip between packets.
 
+When the relay advertises binary support and the phone selects the Host's authenticated offer, both endpoints use binary-v1 after the legacy JSON-sealed Ready. Raw bodies, fragments and sealed envelopes avoid base64 expansion; AAD binds the complete header, traffic context and sender direction. Old peers keep JSON. Malformed declarations, mixed encodings or authentication failures close the connection without replaying operations. Download pulls remain 192 KiB, upload pulls 48 KiB, fragment payloads 12000 bytes, and Host/phone transmit guards 256 KiB; this encoding change does not enlarge windows or introduce byte credits.
+
 </details>
 
 <a id="further-exploration"></a>
@@ -69,4 +71,4 @@ Phone actions use the same logged application operations as the Web client; the 
 <a id="dev-note"></a>
 ### Dev Note
 
-The [decision](../../../.agents/notes/implemented/architecture/2026-10-15-persistent-full-mobile-client.md) owns authorization and recovery trade-offs. Real Loader and optional deployable-relay browser checks are in [mobile-full-client.e2e.ts](../../../apps/web/tests/mobile-full-client.e2e.ts).
+The [decision](../../../.agents/notes/implemented/architecture/2026-10-15-persistent-full-mobile-client.md) owns authorization and recovery trade-offs. [mobile-full-client.e2e.ts](../../../apps/web/tests/mobile-full-client.e2e.ts) owns recorded application flows; [mobile-transport.e2e.ts](../../../apps/web/tests/mobile-transport.e2e.ts) checks encoding and optional frozen legacy checkouts, and [mobile-transport.perf.ts](../../../apps/web/tests/mobile-transport.perf.ts) provides manual same-build JSON/binary measurements.

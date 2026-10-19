@@ -13,7 +13,10 @@ const frameSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('fetch'), id, url: z.string().max(4096), method: z.enum(['GET', 'HEAD', 'POST']),
     headers: z.record(z.string(), z.string().max(4096)), body: z.string().max(12 * 1024 * 1024).optional(),
     upload: z.literal(true).optional() }).strict(),
-  z.object({ type: z.literal('request-body'), id, data: z.string().max(64 * 1024).regex(/^[A-Za-z0-9_-]+$/) }).strict(),
+  z.object({ type: z.literal('request-body'), id, data: z.union([
+    z.string().max(64 * 1024).regex(/^[A-Za-z0-9_-]+$/),
+    z.instanceof(Uint8Array).refine(value => value.length > 0 && value.length <= 48 * 1024),
+  ]) }).strict(),
   z.object({ type: z.literal('request-end'), id }).strict(),
   z.object({ type: z.literal('response-pull'), id }).strict(),
   z.object({ type: z.literal('stream'), id, endpoint: z.string().max(512), payload: z.unknown() }).strict(),
@@ -65,11 +68,11 @@ class Upload {
       cancel: () => { this.end() },
     })
   }
-  push(data: string): void {
+  push(data: string | Uint8Array): void {
     if (this.ended || !this.receiver) throw new Error('unsolicited upload chunk')
     const receiver = this.receiver
     this.receiver = undefined
-    receiver.resolve(new Uint8Array(Buffer.from(data, 'base64url')))
+    receiver.resolve(typeof data === 'string' ? new Uint8Array(Buffer.from(data, 'base64url')) : data)
   }
   end(): void { this.ended = true; this.receiver?.resolve(null) }
 }
@@ -129,9 +132,10 @@ export class FullCarrier {
    * @param ctx - services of the current application.
    * @param send - acknowledged packet writer.
    * @param peer - caller identity dispatched requests speak for; the paired device's operator Peer.
+   * @param binary - negotiated raw body encoding; omitted or false retains legacy base64.
    */
   constructor(private readonly ctx: Context, private readonly send: (frame: object) => Promise<void>,
-    private readonly peer: PeerScope) {}
+    private readonly peer: PeerScope, private readonly binary = false) {}
 
   /** @param value - reassembled encrypted client frame. */
   accept(value: unknown): void {
@@ -142,7 +146,10 @@ export class FullCarrier {
       operation?.abort.abort(); operation?.inbox.end(); operation?.download.end(); operation?.upload?.end()
       return
     }
-    if (frame.type === 'request-body') { this.operations.get(frame.id)?.upload?.push(frame.data); return }
+    if (frame.type === 'request-body') {
+      if (this.binary !== (frame.data instanceof Uint8Array)) throw new Error('unexpected body encoding')
+      this.operations.get(frame.id)?.upload?.push(frame.data); return
+    }
     if (frame.type === 'request-end') { this.operations.get(frame.id)?.upload?.end(); return }
     if (frame.type === 'response-pull') { this.operations.get(frame.id)?.download.push(null); return }
     if (frame.type === 'uplink-end') { this.operations.get(frame.id)?.inbox.end(); return }
@@ -205,7 +212,8 @@ export class FullCarrier {
                   await demand.next()
                   operation.abort.signal.throwIfAborted()
                   await this.send({ type: 'body', id: frame.id,
-                    data: Buffer.from(next.value.subarray(offset, offset + BODY_CHUNK)).toString('base64url') })
+                    data: this.binary ? next.value.subarray(offset, offset + BODY_CHUNK)
+                      : Buffer.from(next.value.subarray(offset, offset + BODY_CHUNK)).toString('base64url') })
                 }
               }
             } finally { await reader.cancel(); reader.releaseLock() }

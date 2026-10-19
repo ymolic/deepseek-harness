@@ -1,6 +1,7 @@
 /** Bounded, acknowledged fragmentation inside an authenticated encrypted connection. */
 import { randomBytes } from 'node:crypto'
 import { isRecord } from './protocol.ts'
+import { packetBytes, readPacket, partBytes, readPart } from './full-binary.ts'
 
 const CHUNK = 12000
 const MAX_PACKET = 16 * 1024 * 1024
@@ -39,13 +40,16 @@ export class FullPackets {
    * @param transmit - ordered encrypted-frame sender.
    * @param receive - complete application-frame consumer.
    * @param windowSize - validated maximum unacknowledged fragments, from deployment configuration.
+   * @param binary - negotiated raw encoding; omitted or false retains legacy JSON.
    */
   constructor(private readonly transmit: (value: object) => Promise<void>,
-    private readonly receive: (value: unknown) => void, private readonly windowSize: number) {}
+    private readonly receive: (value: unknown) => void, private readonly windowSize: number,
+    private readonly binary = false) {}
 
   /** @param value - one decoded encrypted frame. @returns after acknowledgement or packet delivery. */
   async accept(value: unknown): Promise<void> {
     if (this.closed) return
+    if (this.binary && value instanceof Uint8Array) value = readPart(value)
     if (!isRecord(value) || typeof value.id !== 'string' || !/^[A-Za-z0-9_-]{22}$/.test(value.id)
       || !Number.isSafeInteger(value.index) || typeof value.index !== 'number' || value.index < 0) throw new Error('invalid fragment')
     if (value.type === 'ack' && Object.keys(value).length === 3) {
@@ -59,14 +63,15 @@ export class FullPackets {
       return
     }
     if (value.type !== 'part' || Object.keys(value).length !== 5 || typeof value.end !== 'boolean'
-      || typeof value.data !== 'string' || !/^[A-Za-z0-9_-]*$/.test(value.data) || value.data.length > CHUNK * 4 / 3) throw new Error('invalid fragment')
+      || (this.binary ? !(value.data instanceof Uint8Array)
+        : typeof value.data !== 'string' || !/^[A-Za-z0-9_-]*$/.test(value.data) || value.data.length > CHUNK * 4 / 3)) throw new Error('invalid fragment')
     if (!this.incoming) {
       if (value.index !== 0) throw new Error('fragment gap')
       this.incoming = { id: value.id, index: 0, parts: [], size: 0 }
     }
     const current = this.incoming
     if (current.id !== value.id || current.index !== value.index) throw new Error('fragment gap')
-    const bytes = Buffer.from(value.data, 'base64url')
+    const bytes = value.data instanceof Uint8Array ? Buffer.from(value.data) : Buffer.from(String(value.data), 'base64url')
     current.size += bytes.length
     if (current.size > MAX_PACKET) throw new Error('packet limit')
     current.parts.push(bytes)
@@ -74,13 +79,16 @@ export class FullPackets {
     await this.transmit({ type: 'ack', id: value.id, index: value.index })
     if (value.end) {
       this.incoming = undefined
-      this.receive(JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(Buffer.concat(current.parts))))
+      const packet = Buffer.concat(current.parts)
+      this.receive(this.binary ? readPacket(packet) : JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(packet)))
     }
   }
 
   /** @param value - application frame. @returns after every fragment has been acknowledged. */
   send(value: object): Promise<void> {
-    const bytes = Buffer.from(JSON.stringify(value))
+    let bytes: Buffer
+    try { bytes = this.binary ? packetBytes(value) : Buffer.from(JSON.stringify(value)) }
+    catch (error) { return Promise.reject(error instanceof Error ? error : new Error('packet encoding failed', { cause: error })) }
     if (bytes.length > MAX_PACKET) return Promise.reject(new Error('packet limit'))
     const outstanding: Promise<void>[] = []
     const writing = this.outgoing.then(async () => {
@@ -98,8 +106,9 @@ export class FullPackets {
         void acknowledged.catch(() => undefined)
         outstanding.push(acknowledged)
         this.window.push(acknowledged)
-        await this.transmit({ type: 'part', id, index, end: offset + CHUNK >= bytes.length,
-          data: bytes.subarray(offset, offset + CHUNK).toString('base64url') })
+        const payload = bytes.subarray(offset, offset + CHUNK), end = offset + CHUNK >= bytes.length
+        await this.transmit(this.binary ? partBytes(id, index, end, payload)
+          : { type: 'part', id, index, end, data: payload.toString('base64url') })
       }
     }).catch((error: unknown) => { this.close(); throw error })
     this.outgoing = writing.catch(() => undefined)

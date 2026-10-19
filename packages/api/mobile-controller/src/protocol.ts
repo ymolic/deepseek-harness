@@ -2,6 +2,7 @@
 import { createCipheriv, createDecipheriv, hkdfSync, randomBytes } from 'node:crypto'
 import type { MobileRequest, MobileChannelId, MobileRequestId } from './types.ts'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
+import { FULL_BINARY, binaryHeader, binaryAAD } from './full-binary.ts'
 
 /** Limits shared by the published mobile wire protocol. */
 export const MOBILE_WIRE = { maxPlainBytes: 32 * 1024, maxWireBytes: 48 * 1024, maxTextBytes: 8000, maxGenerations: 32 } as const
@@ -181,6 +182,46 @@ export class MobileCipher {
     const parsed: unknown = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(plain))
     this.received.set(value.epoch, value.seq)
     return parsed
+  }
+
+  /**
+   * Encrypt a negotiated binary fragment or JSON acknowledgement using the traffic context.
+   * @param value - raw fragment bytes or control JSON.
+   * @returns one bounded binary WebSocket message; shares the legacy send sequence.
+   */
+  sealBinary(value: object): Buffer {
+    if (this.disposed) throw new Error('mobile authorization ended')
+    const kind = value instanceof Uint8Array ? 2 : 1
+    const plain = value instanceof Uint8Array ? value : Buffer.from(JSON.stringify(value))
+    if (plain.length < 1 || plain.length > FULL_BINARY.plain || this.sequence >= 100000) throw new Error('mobile frame limit')
+    const header = Buffer.alloc(FULL_BINARY.header)
+    header.set([0x44, 0x53, 2, kind]); header.writeUInt32BE(++this.sequence, 4)
+    header.set(Buffer.from(this.epoch, 'base64url'), 8); header.set(randomBytes(12), 24)
+    const cipher = createCipheriv('aes-256-gcm', this.sendKey, header.subarray(24))
+    cipher.setAAD(binaryAAD(this.room, this.role, header))
+    return Buffer.concat([header, cipher.update(plain), cipher.final(), cipher.getAuthTag()])
+  }
+
+  /**
+   * Authenticate every parser-selecting field before delivering plaintext or advancing sequence.
+   * @param bytes - negotiated binary WebSocket message.
+   * @returns raw fragment or parsed control; undefined for an authenticated duplicate.
+   * @throws on malformed, forged, out-of-order or excessive-generation frames.
+   */
+  openBinary(bytes: Uint8Array): unknown {
+    if (this.disposed) throw new Error('mobile authorization ended')
+    const header = binaryHeader(bytes)
+    const prior = this.received.get(header.epoch) ?? 0
+    if (prior === 0 && this.received.size >= MOBILE_WIRE.maxGenerations) throw new Error('mobile generation limit')
+    const decipher = createDecipheriv('aes-256-gcm', this.receiveKey, header.iv)
+    decipher.setAAD(binaryAAD(this.room, this.role === 'desktop' ? 'mobile' : 'desktop', bytes.subarray(0, FULL_BINARY.header)))
+    decipher.setAuthTag(bytes.subarray(-FULL_BINARY.tag))
+    const plain = Buffer.concat([decipher.update(bytes.subarray(FULL_BINARY.header, -FULL_BINARY.tag)), decipher.final()])
+    if (header.seq <= prior) return
+    if (header.seq !== prior + 1) throw new Error('mobile sequence gap')
+    const result: unknown = header.kind === 2 ? plain : JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(plain))
+    this.received.set(header.epoch, header.seq)
+    return result
   }
 
   /** Erase owned key buffers when the authorization ends. */
