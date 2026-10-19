@@ -82,6 +82,10 @@ it.runIf(relayRoot).each(cases)('$name retains exact bytes, cache, cancellation 
       },
     }), 'transport test: exact bytes')
     scaffold.ctx.effect(() => scaffold!.ctx.connection.fetch.register({
+      path: '/api/mobile-test.inline', methods: ['POST'], requestBody: 'buffered',
+      fetch: async request => new Response(await request.arrayBuffer()),
+    }), 'transport test: small request bytes')
+    scaffold.ctx.effect(() => scaffold!.ctx.connection.fetch.register({
       path: '/api/mobile-test.cancel', methods: ['GET'], requestBody: 'buffered',
       fetch: async (request) => {
         request.signal.addEventListener('abort', () => { cancelled = true }, { once: true })
@@ -119,6 +123,12 @@ it.runIf(relayRoot).each(cases)('$name retains exact bytes, cache, cancellation 
     const client = page.frameLocator('iframe.full-frame')
     await client.locator('[data-composer-input]').first().waitFor({ timeout: 90000 })
     expect(binaryFrames.length > 0).toBe(scenario.binary)
+    expect(await page.evaluate(async () => {
+      const bridge = Reflect.get(window, '__DSH_MOBILE_BRIDGE__') as Bridge
+      const bodies = ['', '{"model":"\u6a21\u578b\ud83d\ude80"}', '\u00e9'.repeat(2048), '\u00e9'.repeat(2049)]
+      return await Promise.all(bodies.map(async body =>
+        await (await bridge.fetch('/api/mobile-test.inline', { method: 'POST', body })).text() === body))
+    })).toEqual([true, true, true, true])
     const transfer = await page.evaluate(async (size) => {
       const bridge = Reflect.get(window, '__DSH_MOBILE_BRIDGE__') as Bridge
       const bytes = Uint8Array.from({ length: size }, (_, index) => index % 251)
@@ -136,7 +146,7 @@ it.runIf(relayRoot).each(cases)('$name retains exact bytes, cache, cancellation 
     await expect.poll(() => cancelled).toBe(true)
     const uncertain = page.evaluate(async () => {
       const bridge = Reflect.get(window, '__DSH_MOBILE_BRIDGE__') as Bridge
-      try { await bridge.fetch('/api/mobile-test.mutate', { method: 'POST' }); return false }
+      try { await bridge.fetch('/api/mobile-test.mutate', { method: 'POST', body: '{"action":"once"}' }); return false }
       catch (error) { return error instanceof Error && error.message.includes('not retried') }
     })
     void uncertain.catch(() => undefined)
