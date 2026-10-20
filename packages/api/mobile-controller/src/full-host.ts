@@ -269,12 +269,20 @@ export class FullMobileHost {
           this.traffic = traffic
           const packets = new FullPackets(frame => this.transmit(socket, traffic, frame, raw),
             (frame) => { carrier.accept(frame) }, fragmentWindow, raw)
+          const failedTransport = (): void => {
+            // An old epoch can finish rejecting after this socket authenticates a new one.
+            if (this.socket === socket && this.packets === packets) socket.close(1011)
+          }
           // The paired device keeps one owner-identity Peer across reconnects.
           this.peer ??= this.ctx.connection.createPeer({ principal: { kind: 'owner' } })
           const carrier = new FullCarrier(this.ctx, frame => packets.send(frame).catch((error: unknown) => {
-            if (this.socket === socket) socket.close(1011)
+            failedTransport()
             throw error
-          }), this.peer, raw)
+          }), this.peer, raw, (frame) => {
+            const delivery = packets.write(frame)
+            void delivery.acknowledged.catch((_error: unknown) => { failedTransport() })
+            return delivery.written
+          })
           this.packets = packets
           this.carrier = carrier
           this.attempts = 0

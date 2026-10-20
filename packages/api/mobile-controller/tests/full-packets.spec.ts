@@ -1,5 +1,13 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { FullPackets, fullDownloadWindow } from '../src/full-packets.ts'
+import { readPart } from '../src/full-binary.ts'
+import { isRecord } from '../src/protocol.ts'
+
+function acknowledgement(value: object): object {
+  const frame = value instanceof Uint8Array ? readPart(value) : value
+  if (!isRecord(frame)) throw new Error('expected fragment')
+  return { type: 'ack', id: frame.id, index: frame.index }
+}
 
 describe('full-client encrypted packet framing', () => {
   it('caps downloads by both deployment and relay limits and retains older-relay admission', () => {
@@ -70,5 +78,94 @@ describe('full-client encrypted packet framing', () => {
       packets.close()
       await settled
     }
+  })
+
+  it.each([false, true])('separates local writing from acknowledgement with binary=%s', async (binary) => {
+    const frames: object[] = []
+    const packets = new FullPackets(async (frame) => { frames.push(frame) }, () => {}, 8, binary)
+    const delivery = packets.write({ type: 'item', value: 'ready' })
+    let confirmed = false
+    const confirmedTask = delivery.acknowledged.then(() => { confirmed = true }, () => undefined)
+    try {
+      await delivery.written
+      expect(frames).toHaveLength(1)
+      expect(confirmed).toBe(false)
+      await packets.accept(acknowledgement(frames[0]!))
+      await delivery.acknowledged
+      expect(confirmed).toBe(true)
+    } finally {
+      packets.close()
+      await confirmedTask
+    }
+  })
+
+  it.each([1, 8, 32])('bounds pipelined writes by the shared %i-fragment window', async (windowSize) => {
+    const frames: object[] = []
+    const filled = Promise.withResolvers<undefined>()
+    const packets = new FullPackets(async (frame) => {
+      frames.push(frame)
+      if (frames.length === windowSize) filled.resolve(undefined)
+    }, () => {}, windowSize, true)
+    const deliveries = Array.from({ length: windowSize + 2 }, (_, value) => packets.write({ type: 'item', value }))
+    const settled = Promise.allSettled(deliveries.flatMap(delivery => [delivery.written, delivery.acknowledged]))
+    try {
+      await filled.promise
+      await Promise.all(deliveries.slice(0, windowSize).map(delivery => delivery.written))
+      expect(frames).toHaveLength(windowSize)
+      await packets.accept(acknowledgement(frames[0]!))
+      await deliveries[windowSize]!.written
+      expect(frames).toHaveLength(windowSize + 1)
+    } finally {
+      packets.close()
+      await settled
+    }
+  })
+
+  it('rejects a written but unacknowledged packet and queued writes on disconnect', async () => {
+    const packets = new FullPackets(async () => {}, () => {}, 1)
+    const first = packets.write({ type: 'item', value: 1 })
+    const next = packets.write({ type: 'item', value: 2 })
+    const rejected = Promise.all([
+      expect(first.acknowledged).rejects.toThrow('closed'),
+      expect(next.written).rejects.toThrow('closed'),
+      expect(next.acknowledged).rejects.toThrow('closed'),
+    ])
+    await first.written
+    packets.close()
+    await rejected
+  })
+
+  it('invalidates the transport when an acknowledgement times out after local writing', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    const packets = new FullPackets(async () => {}, () => {}, 8)
+    try {
+      const delivery = packets.write({ type: 'item', value: 1 })
+      const expired = expect(delivery.acknowledged).rejects.toThrow('acknowledgement timeout')
+      await delivery.written
+      await vi.advanceTimersByTimeAsync(30000)
+      await expired
+      await expect(packets.send({ type: 'item', value: 2 })).rejects.toThrow('closed')
+    } finally {
+      packets.close()
+      vi.useRealTimers()
+    }
+  })
+
+  it('rejects both write phases for encoding and local transmit failures', async () => {
+    const packets = new FullPackets(async () => { throw new Error('synthetic transmit failure') }, () => {}, 8)
+    try {
+      const circular: { self?: object } = {}
+      circular.self = circular
+      const invalid = packets.write(circular)
+      await Promise.all([
+        expect(invalid.written).rejects.toThrow(),
+        expect(invalid.acknowledged).rejects.toThrow(),
+      ])
+      const failed = packets.write({ type: 'item', value: 1 })
+      await Promise.all([
+        expect(failed.written).rejects.toThrow('synthetic transmit failure'),
+        expect(failed.acknowledged).rejects.toThrow('synthetic transmit failure'),
+      ])
+    } finally { packets.close() }
   })
 })

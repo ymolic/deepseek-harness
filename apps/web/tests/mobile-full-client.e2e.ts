@@ -106,6 +106,46 @@ it('pairs without a Session, loads the full application, dispatches real RPC and
 // Setting its root opts into the real distributor/worker/browser acceptance path.
 const relayRoot = process.env.DSH_MOBILE_RELAY_ROOT
 
+it('keeps a new authenticated epoch on the same Host socket after old stream acknowledgements fail', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'dsh-phone-stream-epoch-'))
+  const relay = await mobileRelayFixture()
+  let scaffold: WebScaffold | undefined
+  const phones: ReturnType<typeof relay.pairFull>[] = []
+  try {
+    const overlay = join(root, 'mobile.yml')
+    await writeFile(overlay, `- id: mobile-controller\n  config:\n    enabled: true\n    relayOrigin: ${relay.origin}\n`)
+    scaffold = await launchWebScaffold({ extraOverlayPath: overlay })
+    await scaffold.ctx.credentials.set(credentialRef('DSH_MOBILE_DESKTOP_TOKEN'), relay.desktopToken)
+    const authorization = await scaffold.ctx.mobileController.start({ scope: 'instance', acknowledgeTools: true })
+    const trust = await scaffold.ctx.credentials.readRecord(credentialKey('mobile-controller', 'trusted-device'))
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const previous = relay.pairFull(authorization.pairingUrl, { holdAcknowledgements: true })
+      phones.push(previous)
+      await previous.ready
+      await previous.send({ type: 'stream', id: 'pending-workspace-0001', endpoint: 'workspace/follow', payload: { args: {} } })
+      await expect.poll(() => previous.replies.some(frame => isRecord(frame) && frame.type === 'item')).toBe(true)
+      expect(previous.heldAcknowledgements).toBeGreaterThan(0)
+      previous.disconnect()
+      const current = relay.pairFull(authorization.pairingUrl)
+      phones.push(current)
+      await current.ready
+      await current.send({ type: 'stream', id: 'pending-workspace-0001', endpoint: 'workspace/follow', payload: { args: {} } })
+      await expect.poll(() => current.replies.some(frame => isRecord(frame) && frame.type === 'item')).toBe(true)
+      await current.send({ type: 'cancel', id: 'pending-workspace-0001' })
+      expect(current.online).toBe(true)
+      expect(previous.errors).toEqual([])
+      expect(current.errors).toEqual([])
+      current.disconnect()
+    }
+    expect(relay.created).toBe(1)
+    expect(await scaffold.ctx.credentials.readRecord(credentialKey('mobile-controller', 'trusted-device'))).toEqual(trust)
+  } finally {
+    for (const phone of phones) phone.detach()
+    try { await scaffold?.close() }
+    finally { await relay.close(); await rm(root, { recursive: true, force: true }) }
+  }
+})
+
 interface PhoneClientObservation {
   toggle?: (disabled: boolean) => Promise<void>
 }

@@ -86,7 +86,7 @@ export async function mobileRelayFixture() {
       nextRevocation = { reached: () => { entered.resolve(undefined) }, resumed: resumed.promise }
       return { entered: entered.promise, release }
     },
-    pairFull(pairingUrl: string) {
+    pairFull(pairingUrl: string, { holdAcknowledgements = false } = {}) {
       const fragment = new URLSearchParams(new URL(pairingUrl).hash.slice(1))
       const room = rooms.get(fragment.get('room') ?? '')
       if (!room?.socket || !room.full) throw new Error('full-client fixture unavailable')
@@ -96,6 +96,7 @@ export async function mobileRelayFixture() {
       const ready = Promise.withResolvers<undefined>()
       const replies: unknown[] = []
       const errors: unknown[] = []
+      let heldAcknowledgements = 0
       let traffic: MobileCipher | undefined
       let packets: FullPackets | undefined
       let chain = Promise.resolve()
@@ -113,7 +114,10 @@ export async function mobileRelayFixture() {
           }
           const value = traffic.open(envelope)
           if (isRecord(value) && value.type === 'ready') {
-            packets = new FullPackets(async (value) => { transport.send(JSON.stringify(traffic!.seal(value))) }, (value) => {
+            packets = new FullPackets(async (value) => {
+              if (holdAcknowledgements && isRecord(value) && value.type === 'ack') { heldAcknowledgements++; return }
+              transport.send(JSON.stringify(traffic!.seal(value)))
+            }, (value) => {
               replies.push(value)
               if (isRecord(value) && (value.type === 'response' || value.type === 'body')) {
                 void packets!.send({ type: 'response-pull', id: value.id }).catch((error: unknown) => { errors.push(error) })
@@ -123,11 +127,23 @@ export async function mobileRelayFixture() {
           } else if (value !== undefined) await packets?.accept(value)
         }).catch((error: unknown) => { errors.push(error); ready.reject(error) })
       }
+      const closed = () => { ready.reject(new Error('Fixture transport closed before authentication')) }
+      const detach = () => {
+        transport.off('message', read); transport.off('close', closed)
+        packets?.close(); traffic?.dispose(); root.dispose(); secret.fill(0)
+      }
       transport.on('message', read)
+      transport.on('close', closed)
       transport.send(JSON.stringify({ type: 'status', protocol: 2, mode: 'full-client-e2ee', paired: true, mobileOnline: true }))
       return { ready: ready.promise, replies, errors,
+        get online() { return transport.readyState === WebSocket.OPEN },
+        get heldAcknowledgements() { return heldAcknowledgements },
         async send(frame: object) { await ready.promise; await packets!.send(frame) },
-        detach() { transport.off('message', read); packets?.close(); traffic?.dispose(); root.dispose(); secret.fill(0) },
+        detach,
+        disconnect() {
+          detach()
+          transport.send(JSON.stringify({ type: 'status', protocol: 2, mode: 'full-client-e2ee', paired: true, mobileOnline: false }))
+        },
       }
     },
     pair(pairingUrl: string) {

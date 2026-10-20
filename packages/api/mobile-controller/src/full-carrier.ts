@@ -133,9 +133,11 @@ export class FullCarrier {
    * @param send - acknowledged packet writer.
    * @param peer - caller identity dispatched requests speak for; the paired device's operator Peer.
    * @param binary - negotiated raw body encoding; omitted or false retains legacy base64.
+   * @param writeStream - ordered, window-bounded local writer owning later acknowledgement failures; defaults to acknowledged writes.
    */
   constructor(private readonly ctx: Context, private readonly send: (frame: object) => Promise<void>,
-    private readonly peer: PeerScope, private readonly binary = false) {}
+    private readonly peer: PeerScope, private readonly binary = false,
+    private readonly writeStream: (frame: object) => Promise<void> = send) {}
 
   /** @param value - reassembled encrypted client frame. */
   accept(value: unknown): void {
@@ -225,8 +227,9 @@ export class FullCarrier {
           )
           for await (const value of stream) {
             operation.abort.signal.throwIfAborted()
-            await this.send({ type: 'item', id: frame.id, value })
+            await this.writeStream({ type: 'item', id: frame.id, value })
           }
+          operation.abort.signal.throwIfAborted()
           await this.send({ type: 'finish', id: frame.id })
         }
       } catch (error) {

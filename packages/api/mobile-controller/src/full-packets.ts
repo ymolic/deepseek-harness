@@ -6,6 +6,14 @@ import { packetBytes, readPacket, partBytes, readPart } from './full-binary.ts'
 const CHUNK = 12000
 const MAX_PACKET = 16 * 1024 * 1024
 
+/** Local write failures reject both phases; later ACK failures reject only acknowledgement. */
+export interface FullPacketWrite {
+  /** Resolves after every fragment passes the shared window and the local sender. */
+  readonly written: Promise<void>
+  /** Resolves after the peer acknowledges every fragment; transmit failures and ACK timeouts close the transport. */
+  readonly acknowledged: Promise<void>
+}
+
 /**
  * Resolve the download window advertised by the relay, retaining legacy admission.
  * @param advertised - optional status field received from the relay.
@@ -86,10 +94,23 @@ export class FullPackets {
 
   /** @param value - application frame. @returns after every fragment has been acknowledged. */
   send(value: object): Promise<void> {
+    return this.write(value).acknowledged
+  }
+
+  /**
+   * Queue one ordered packet; the shared fragment window still bounds unacknowledged bytes.
+   * @param value - application frame; callers await `written` before queuing their next packet.
+   * @returns local writing and peer acknowledgement, both of which the caller must observe.
+   */
+  write(value: object): FullPacketWrite {
     let bytes: Buffer
-    try { bytes = this.binary ? packetBytes(value) : Buffer.from(JSON.stringify(value)) }
-    catch (error) { return Promise.reject(error instanceof Error ? error : new Error('packet encoding failed', { cause: error })) }
-    if (bytes.length > MAX_PACKET) return Promise.reject(new Error('packet limit'))
+    try {
+      bytes = this.binary ? packetBytes(value) : Buffer.from(JSON.stringify(value))
+      if (bytes.length > MAX_PACKET) throw new Error('packet limit')
+    } catch (error) {
+      const failed = Promise.reject<void>(error instanceof Error ? error : new Error('packet encoding failed', { cause: error }))
+      return { written: failed, acknowledged: failed }
+    }
     const outstanding: Promise<void>[] = []
     const writing = this.outgoing.then(async () => {
       const id = randomBytes(16).toString('base64url')
@@ -112,8 +133,9 @@ export class FullPackets {
       }
     }).catch((error: unknown) => { this.close(); throw error })
     this.outgoing = writing.catch(() => undefined)
-    return writing.then(async () => { await Promise.all(outstanding) })
+    const acknowledged = writing.then(async () => { await Promise.all(outstanding) })
       .catch((error: unknown) => { this.close(); throw error })
+    return { written: writing, acknowledged }
   }
 
   /** Reject pending sends and erase incomplete plaintext on transport loss. */

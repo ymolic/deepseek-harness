@@ -41,7 +41,9 @@ Web 应用 bundle 包含此控制器，默认禁用。在桌面 profile 的 `cor
 
 关闭二维码弹窗仅隐藏界面。Host 卸载只关闭连接，不撤销设备信任。重连监督使用有上限的指数退避；服务不可用时持续显示离线。旧 Session-start 请求为已有文本客户端保留，继续使用短期投影与回执协议，不实现完整客户端生命周期。
 
-所有并发下载包共用有界窗口；`fullFragmentWindow` 配置未确认分片数，范围 1-32，默认 32。Host 采用配置与中继声明两者中较小的限制；未声明窗口的旧中继仍限八分片。手机上传保留独立的八分片窗口。兼容中继允许包含加密封装在内最多 1 MiB 的完整客户端 socket 缓冲，超限即断开。单分片限制、按需响应块与取消机制不变；确认回执分别完成各次发送，不要求每个包之间再等待一次网络往返。
+所有并发下载包共用有界窗口；`fullFragmentWindow` 配置未确认分片数，范围 1-32，默认 32。Host 采用配置与中继声明两者中较小的限制；未声明窗口的旧中继仍限八分片。手机上传保留独立的八分片窗口。兼容中继允许包含加密封装在内最多 1 MiB 的完整客户端 socket 缓冲，超限即断开。
+
+Gateway 逻辑流条目保持包顺序，只等待分片通过共享窗口和本地发送器；对端确认独立释放分片。每个生产者等待本地写完后才读取下一条。终止帧仍等待确认，HTTP 上传/下载拉取保持不变。发送失败和 ACK 超时使对应流量 epoch 失效；已丢弃 epoch 的延迟失败不能关闭同一 socket 上的替代连接。只读订阅重连后获取新基线，不重放已丢弃条目。
 
 当中继声明二进制支持，且手机选择 Host 已认证的能力提议时，两端在旧格式 JSON 加密的 Ready 之后使用 binary-v1。原始 body、分片和加密信封避免 base64 放大；AAD 绑定完整头字段、流量上下文和发送方向。旧端继续使用 JSON。畸形声明、混用编码或认证失败会关闭连接，不重放操作。下载拉取仍为 192 KiB，上传拉取为 48 KiB，分片载荷为 12000 字节，Host/手机发送检查仍为 256 KiB；此编码改造不扩大窗口或引入字节授信。
 
@@ -67,8 +69,9 @@ Web 应用 bundle 包含此控制器，默认禁用。在桌面 profile 的 `cor
 
 - 中继必须支持持久协议 2 房间。浏览器 cookie 受浏览器有效期限制，也可能与 IndexedDB 一起被清除；清理浏览器数据后需要重新配对。Host 必须运行才能执行操作。
 - 原生 Electron 集成不是浏览器能力。远端目录选择需组合现有 browse 目录选择后端。真实 iPhone Safari、后台挂起与蜂窝网络可靠性需真机验收。
+- 分片窗口限制未确认的传输字节，不限制 Gateway 生产者或浏览器消费者保留的队列。逻辑流尚无按应用消费补充的授信。
 
 <a id="dev-note"></a>
 ### 开发备注
 
-[决策](../../../.agents/notes/implemented/architecture/2026-10-15-persistent-full-mobile-client.zh.md) 维护授权与恢复取舍。[mobile-full-client.e2e.ts](../../../apps/web/tests/mobile-full-client.e2e.ts) 维护录制应用流程；[mobile-transport.e2e.ts](../../../apps/web/tests/mobile-transport.e2e.ts) 检查编码与可选的冻结旧版 checkout，[mobile-transport.perf.ts](../../../apps/web/tests/mobile-transport.perf.ts) 提供同构建 JSON/二进制手动测量。
+[决策](../../../.agents/notes/implemented/architecture/2026-10-15-persistent-full-mobile-client.zh.md) 维护授权与恢复取舍。[mobile-full-client.e2e.ts](../../../apps/web/tests/mobile-full-client.e2e.ts) 维护录制应用流程；[mobile-stream.e2e.ts](../../../apps/web/tests/mobile-stream.e2e.ts) 检查流水发送与输出途中恢复。[mobile-transport.e2e.ts](../../../apps/web/tests/mobile-transport.e2e.ts) 检查编码与可选的冻结旧版 checkout，[mobile-transport.perf.ts](../../../apps/web/tests/mobile-transport.perf.ts) 提供同构建 JSON/二进制手动测量。
