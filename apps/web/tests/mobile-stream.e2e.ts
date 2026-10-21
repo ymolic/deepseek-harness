@@ -30,6 +30,26 @@ interface Bridge {
   fetch(input: string, init?: RequestInit): Promise<Response>
 }
 
+async function foregroundCycle(page: Page, elapsedMs = 0): Promise<void> {
+  await page.evaluate((elapsed) => {
+    const previous = Object.getOwnPropertyDescriptor(document, 'visibilityState')
+    const now = Date.now
+    let clock = now()
+    try {
+      Date.now = () => clock
+      Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' })
+      document.dispatchEvent(new Event('visibilitychange'))
+      clock += elapsed
+      Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' })
+      document.dispatchEvent(new Event('visibilitychange'))
+    } finally {
+      Date.now = now
+      if (previous) Object.defineProperty(document, 'visibilityState', previous)
+      else Reflect.deleteProperty(document, 'visibilityState')
+    }
+  }, elapsedMs)
+}
+
 it.runIf(relayRoot).each([
   { name: 'Chromium', engine: chromium },
   { name: 'WebKit', engine: webkit },
@@ -44,6 +64,8 @@ it.runIf(relayRoot).each([
   const pageErrors: string[] = []
   const sockets: RoutedSocket[] = []
   let restoreStreamObserver = () => {}
+  let restoreRecoveryObservers = () => {}
+  let hostHeads = 0
   const controlStreams: { baselines: number; updates: number; closed: boolean }[] = []
   const partials: string[] = []
   const reached = Array.from({ length: 3 }, () => Promise.withResolvers<string>())
@@ -67,6 +89,14 @@ it.runIf(relayRoot).each([
     scaffold = await launchWebScaffold({ extraOverlayPath: overlay, replayFixture, compareReplaySession: false, paceMs: 0,
       replayProviders: [{ id: 'deepseek-messages', name: 'DeepSeek', models: [{ id: 'deepseek-v4-flash', name: 'DeepSeek-V4-Flash',
         contextWindow: 1000000, defaultMaxTokens: 256000, reasoningEfforts: ['off', 'low', 'high', 'max'], defaultReasoningEffort: 'high' }] }] })
+    const modelCatalog = vi.spyOn(scaffold.ctx.sessionController, 'modelCatalog')
+    const assetFetch = scaffold.ctx.frontendAssets.fetch.bind(scaffold.ctx.frontendAssets)
+    const assets = vi.spyOn(scaffold.ctx.frontendAssets, 'fetch').mockImplementation(async (request) => {
+      const response = await assetFetch(request)
+      if (request.method === 'HEAD') hostHeads++
+      return response
+    })
+    restoreRecoveryObservers = () => { modelCatalog.mockRestore(); assets.mockRestore() }
     const wire = scaffold.ctx.typertGateway.wireStream
     const open = wire.open.bind(wire)
     const observer = vi.spyOn(wire, 'open').mockImplementation(async (...args) => {
@@ -145,6 +175,16 @@ it.runIf(relayRoot).each([
     const selected = await client.locator('body').evaluate(() => localStorage.getItem('dsh.sessions.current'))
 
     const first = sockets.at(-1)!
+    stage = 'healthy short foreground return'
+    const modelRequests = modelCatalog.mock.calls.length
+    expect(modelRequests).toBeGreaterThan(0)
+    await foregroundCycle(page)
+    await expect.poll(() => hostHeads, { timeout: 10000 }).toBe(1)
+    await streaming.getByText(await reached[0]!.promise, { exact: true }).waitFor()
+    expect(sockets).toHaveLength(initialSockets)
+    expect(modelCatalog.mock.calls).toHaveLength(modelRequests)
+    expect(await editor.innerText()).toBe('UNSENT_STREAM_RECOVERY_DRAFT')
+    expect(await page.locator('iframe.full-frame').evaluate((element, previous) => element === previous, frame)).toBe(true)
     // Withhold all outbound ACKs: later deltas must arrive through the shared window before any are released.
     first.hold = true
     stage = 'withheld acknowledgement pipeline'
@@ -167,22 +207,19 @@ it.runIf(relayRoot).each([
     void interrupted.catch(() => undefined)
     await expect.poll(() => first.held).toBeGreaterThan(beforeInterrupted)
     // Model lifecycle events with a stale OPEN transport; this does not suspend the browser process.
-    await page.evaluate(() => {
-      const previous = Object.getOwnPropertyDescriptor(document, 'visibilityState')
-      try {
-        Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' })
-        document.dispatchEvent(new Event('visibilitychange'))
-        Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' })
-        document.dispatchEvent(new Event('visibilitychange'))
-      } finally {
-        if (previous) Object.defineProperty(document, 'visibilityState', previous)
-        else Reflect.deleteProperty(document, 'visibilityState')
-      }
-    })
+    await foregroundCycle(page)
     await expect.poll(() => sockets.length, { timeout: 20000 }).toBe(initialSockets + 1)
     expect(await interrupted).toBe(true)
     await client.getByRole('button', { name: '远程连接: 已连接', exact: true }).waitFor()
     await streaming.getByText(partial, { exact: true }).waitFor()
+    expect(await editor.innerText()).toBe('UNSENT_STREAM_RECOVERY_DRAFT')
+    expect(await page.locator('iframe.full-frame').evaluate((element, previous) => element === previous, frame)).toBe(true)
+    stage = 'long absence foreground recovery'
+    const headsBeforeLong = hostHeads
+    await foregroundCycle(page, 60000)
+    await expect.poll(() => sockets.length, { timeout: 20000 }).toBe(initialSockets + 2)
+    await client.getByRole('button', { name: '远程连接: 已连接', exact: true }).waitFor()
+    expect(hostHeads).toBe(headsBeforeLong)
     expect(await editor.innerText()).toBe('UNSENT_STREAM_RECOVERY_DRAFT')
     expect(await page.locator('iframe.full-frame').evaluate((element, previous) => element === previous, frame)).toBe(true)
     const foregroundSockets = sockets.length
@@ -261,6 +298,7 @@ it.runIf(relayRoot).each([
   }
   finally {
     restoreStreamObserver()
+    restoreRecoveryObservers()
     for (const release of releases) release.resolve(undefined)
     for (const cleanup of [async () => {
       if (scaffold && !(await scaffold.ctx.mobileController.stop()).relayRevoked) throw new Error('Temporary trust revocation unconfirmed')
