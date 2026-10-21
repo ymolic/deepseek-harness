@@ -23,6 +23,7 @@ interface RoutedSocket {
   server: WebSocketRoute
   hold: boolean
   held: number
+  stalled: boolean
 }
 
 interface Bridge {
@@ -32,7 +33,7 @@ interface Bridge {
 it.runIf(relayRoot).each([
   { name: 'Chromium', engine: chromium },
   { name: 'WebKit', engine: webkit },
-])('$name pipelines live chat and restores it after phone and Host disconnects', async ({ engine, name }) => {
+])('$name streams live chat and restores it after foreground, phone and Host reconnects', async ({ engine, name }) => {
   const root = await mkdtemp(join(tmpdir(), 'dsh-mobile-stream-'))
   let relay: { origin: string; close(): Promise<void> } | undefined
   let scaffold: WebScaffold | undefined
@@ -40,6 +41,8 @@ it.runIf(relayRoot).each([
   let page: Page | undefined
   let failure: unknown
   let stage = 'boot'
+  const pageErrors: string[] = []
+  const sockets: RoutedSocket[] = []
   let restoreStreamObserver = () => {}
   const controlStreams: { baselines: number; updates: number; closed: boolean }[] = []
   const partials: string[] = []
@@ -103,19 +106,17 @@ it.runIf(relayRoot).each([
       ? process.env.BROWSER_EXECUTABLE ? { executablePath: process.env.BROWSER_EXECUTABLE } : { channel: 'chrome' }
       : {})
     page = await browser.newPage({ viewport: { width: 390, height: 844 }, locale: 'zh-CN', isMobile: true, hasTouch: true })
-    const errors: string[] = []
-    page.on('pageerror', error => errors.push(error.message))
+    page.on('pageerror', error => pageErrors.push(error.message))
     page.on('crash', () => { console.info(`${name} mobile stream renderer crashed during ${stage}`) })
-    const sockets: RoutedSocket[] = []
     await page.routeWebSocket('**/ws/mobile', (client) => {
       const server = client.connectToServer()
-      const socket = { client, server, hold: false, held: 0 }
+      const socket = { client, server, hold: false, held: 0, stalled: false }
       sockets.push(socket)
       client.onMessage((message) => {
-        if (socket.hold) socket.held++
+        if (socket.hold || socket.stalled) socket.held++
         else server.send(message)
       })
-      server.onMessage((message) => { client.send(message) })
+      server.onMessage((message) => { if (!socket.stalled) client.send(message) })
     })
     await page.goto(authorization.pairingUrl).catch(() => { throw new Error('Isolated phone navigation failed; URL omitted') })
     const client = page.frameLocator('iframe.full-frame')
@@ -128,7 +129,9 @@ it.runIf(relayRoot).each([
     await directory.getByRole('textbox', { name: '编辑路径' }).fill(scaffold.workspaceCwd)
     await directory.getByRole('textbox', { name: '编辑路径' }).press('Enter')
     await directory.getByRole('button', { name: '打开', exact: true }).click()
+    await editor.waitFor({ timeout: 30000 })
     const frame = await page.locator('iframe.full-frame').elementHandle()
+    const initialSockets = sockets.length
     const prompts = fixtureUserPrompts(await readFile(replayFixture, 'utf8'))
     const settled = scaffold.whenTurnSettled()
     void settled.catch(() => undefined)
@@ -141,8 +144,8 @@ it.runIf(relayRoot).each([
     await editor.fill('UNSENT_STREAM_RECOVERY_DRAFT')
     const selected = await client.locator('body').evaluate(() => localStorage.getItem('dsh.sessions.current'))
 
-    // Withhold all outbound ACKs: two later deltas must arrive before any are released.
     const first = sockets.at(-1)!
+    // Withhold all outbound ACKs: later deltas must arrive through the shared window before any are released.
     first.hold = true
     stage = 'withheld acknowledgement pipeline'
     for (let index = 1; index < reached.length; index++) {
@@ -152,14 +155,45 @@ it.runIf(relayRoot).each([
     }
     await expect.poll(() => first.held).toBeGreaterThan(0)
     const partial = await reached[2]!.promise
+    stage = 'stale OPEN foreground recovery'
+    first.stalled = true
+    await client.getByRole('button', { name: '远程连接: 已连接', exact: true }).waitFor()
+    const beforeInterrupted = first.held
+    const interrupted = page.evaluate(async () => {
+      const bridge = Reflect.get(window, '__DSH_MOBILE_BRIDGE__') as Bridge
+      try { await bridge.fetch('/api/session/modelCatalog', { method: 'POST', body: '{}' }); return false }
+      catch (error) { return error instanceof Error && error.message.includes('not retried') }
+    })
+    void interrupted.catch(() => undefined)
+    await expect.poll(() => first.held).toBeGreaterThan(beforeInterrupted)
+    // Model lifecycle events with a stale OPEN transport; this does not suspend the browser process.
+    await page.evaluate(() => {
+      const previous = Object.getOwnPropertyDescriptor(document, 'visibilityState')
+      try {
+        Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' })
+        document.dispatchEvent(new Event('visibilitychange'))
+        Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' })
+        document.dispatchEvent(new Event('visibilitychange'))
+      } finally {
+        if (previous) Object.defineProperty(document, 'visibilityState', previous)
+        else Reflect.deleteProperty(document, 'visibilityState')
+      }
+    })
+    await expect.poll(() => sockets.length, { timeout: 20000 }).toBe(initialSockets + 1)
+    expect(await interrupted).toBe(true)
+    await client.getByRole('button', { name: '远程连接: 已连接', exact: true }).waitFor()
+    await streaming.getByText(partial, { exact: true }).waitFor()
+    expect(await editor.innerText()).toBe('UNSENT_STREAM_RECOVERY_DRAFT')
+    expect(await page.locator('iframe.full-frame').evaluate((element, previous) => element === previous, frame)).toBe(true)
+    const foregroundSockets = sockets.length
     stage = 'phone socket recovery'
-    await Promise.all([first.client.close({ code: 1012 }), first.server.close({ code: 1012 })])
-    await expect.poll(() => sockets.length, { timeout: 20000 }).toBe(2)
+    const foreground = sockets.at(-1)!
+    await Promise.all([foreground.client.close({ code: 1012 }), foreground.server.close({ code: 1012 })])
+    await expect.poll(() => sockets.length, { timeout: 20000 }).toBe(foregroundSockets + 1)
     await client.getByRole('button', { name: '远程连接: 已连接', exact: true }).waitFor()
     await streaming.getByText(partial, { exact: true }).waitFor()
     expect(await editor.innerText()).toBe('UNSENT_STREAM_RECOVERY_DRAFT')
 
-    // A pending old phone send must fail without closing its replacement traffic epoch.
     const hostEntry = [...scaffold.ctx.loader.entries()].find(entry => entry.options.id === 'mobile-controller')
     if (!hostEntry) throw new Error('Mobile controller Loader entry missing')
     const current = sockets.at(-1)!
@@ -179,13 +213,13 @@ it.runIf(relayRoot).each([
     await hostEntry.update({ disabled: false })
     await client.getByRole('button', { name: '远程连接: 已连接', exact: true }).waitFor()
     await streaming.getByText(partial, { exact: true }).waitFor()
-    expect(sockets).toHaveLength(2)
+    expect(sockets).toHaveLength(foregroundSockets + 1)
     releases[2]!.resolve(undefined)
     stage = 'settlement'
     const sessionId = await settled
     await client.getByText('MESSAGES_WEB_READY', { exact: true }).waitFor()
     expect(await client.getByText('MESSAGES_WEB_READY', { exact: true }).count()).toBe(1)
-    expect(await streaming.count()).toBe(0)
+    await expect.poll(() => streaming.count(), { timeout: 10000 }).toBe(0)
     expect(await page.locator('iframe.full-frame').evaluate((element, previous) => element === previous, frame)).toBe(true)
     expect(await editor.innerText()).toBe('UNSENT_STREAM_RECOVERY_DRAFT')
     expect(await client.locator('body').evaluate(() => localStorage.getItem('dsh.sessions.current'))).toBe(selected)
@@ -196,6 +230,12 @@ it.runIf(relayRoot).each([
         .flatMap(event => event.type === 'user/message'
           ? [{ role: 'user', text: event.data.content.filter(part => part.type === 'text').map(part => part.text).join('') }]
           : event.type === 'assistant/message' ? [{ role: 'assistant', text: event.data.message.content.filter(part => part.type === 'text').map(part => part.text).join('') }] : []), null, 2), 'replay')
+    stage = 'post-recovery model catalog'
+    await client.getByRole('button', { name: /^选择模型/ }).click()
+    await client.getByRole('menuitem', { name: /^模型/ }).click()
+    const recoveredModel = client.getByRole('menuitemradio', { name: 'DeepSeek-V4-Flash', exact: true })
+    await recoveredModel.waitFor()
+    await recoveredModel.click()
     stage = 'post-recovery subscription'
     await client.locator('[data-shell-leading]').getByRole('button', { name: '打开侧边栏', exact: true }).click()
     const drawer = client.getByRole('dialog', { name: '导航', exact: true })
@@ -205,12 +245,16 @@ it.runIf(relayRoot).each([
     await row.waitFor()
     await scaffold.ctx.sessionController.rename({ sessionId, title: 'Recovered mobile session' })
     await row.getByText('Recovered mobile session', { exact: true }).waitFor()
-    expect(errors).toEqual([])
+    expect(pageErrors).toEqual([])
     await saveFailureShot(page, `mobile-stream-recovered-${name.toLowerCase()}`)
   } catch (error) {
-    if (page && stage === 'post-recovery subscription') {
-      console.info(JSON.stringify({ controlStreams, sidebar: await page.frameLocator('iframe.full-frame')
-        .getByRole('dialog', { name: '导航', exact: true }).innerText({ timeout: 1000 }).catch(() => 'unavailable') }))
+    if (page) {
+      console.info(JSON.stringify({ stage, pageErrors, phoneSockets: sockets.length,
+        iframes: await page.locator('iframe.full-frame').count(), controlStreams,
+        outer: await page.locator('body').innerText({ timeout: 1000 }).catch(() => 'unavailable'),
+        inner: await page.frameLocator('iframe.full-frame').locator('body').innerText({ timeout: 1000 }).catch(() => 'unavailable'),
+        sidebar: await page.frameLocator('iframe.full-frame').getByRole('dialog', { name: '导航', exact: true })
+          .innerText({ timeout: 1000 }).catch(() => 'unavailable') }))
       await saveFailureShot(page, `mobile-stream-failed-${name.toLowerCase()}`)
     }
     failure = new Error(`${name} mobile stream failed during ${stage}`, { cause: error })
