@@ -7,7 +7,7 @@ import { WebSocket } from 'ws'
 import { z } from 'zod'
 import { MobileCipher, isRecord, MOBILE_WIRE } from './protocol.ts'
 import { closeDevice, connectDevice, createRoom, revokeRoom } from './relay-client.ts'
-import { FullPackets, fullDownloadWindow } from './full-packets.ts'
+import { FullPackets, fullDownloadWindow, packetMuxSupport, type FullPacketLane } from './full-packets.ts'
 import { FullCarrier } from './full-carrier.ts'
 import { binaryRelaySupport } from './full-binary.ts'
 import type { MobileDesktopState, MobileStartResult } from './types.ts'
@@ -234,6 +234,7 @@ export class FullMobileHost {
     let received = Promise.resolve()
     let fragmentWindow = fullDownloadWindow(undefined, this.config.fullFragmentWindow)
     let relayBinary = false, offeredBinary = false, binaryTransport = false
+    let relayPacketMux = false, offeredPacketMux = false, packetMux = false
     socket.on('message', (bytes, binary) => {
       received = received.then(async () => {
         if (this.socket !== socket || this.disposed || this.saved?.revoked) return
@@ -244,42 +245,54 @@ export class FullMobileHost {
           if (value.protocol !== 2 || value.mode !== 'full-client-e2ee') throw new Error('relay upgrade required')
           fragmentWindow = fullDownloadWindow(value.fullFragmentWindow, this.config.fullFragmentWindow)
           relayBinary = binaryRelaySupport(value.envelope)
+          relayPacketMux = packetMuxSupport(value.features)
           this.state = { ...this.state, phase: value.paired === true ? 'paired' : 'waiting', mobileOnline: value.mobileOnline === true,
             ...(value.paired === true ? { pairingUrl: undefined, ticketExpiresAt: null } : {}) }
-          if (!value.mobileOnline) { this.clearTraffic(); binaryTransport = offeredBinary = false; return }
+          if (!value.mobileOnline) {
+            this.clearTraffic()
+            binaryTransport = offeredBinary = packetMux = offeredPacketMux = false
+            return
+          }
           if (!this.nonce) {
             this.clearTraffic()
             this.nonce = randomBytes(16).toString('base64url')
             this.root = new MobileCipher(Buffer.from(saved.secret, 'base64url'), saved.room.roomId)
             offeredBinary = relayBinary
+            offeredPacketMux = relayPacketMux
             await this.transmit(socket, this.root, { type: 'challenge', nonce: this.nonce, protocol: 2,
-              ...(offeredBinary ? { transport: ['binary-v1'] } : {}) })
+              ...(offeredBinary ? { transport: ['binary-v1'] } : {}),
+              ...(offeredPacketMux ? { features: ['packet-mux-v1'] } : {}) })
           }
           return
         }
         if (!this.traffic) {
           const auth = this.root?.open(value)
           if (binary || !isRecord(auth) || auth.type !== 'authenticate'
-            || Object.keys(auth).length !== (auth.transport === undefined ? 3 : 4) || auth.nonce !== this.nonce
+            || Object.keys(auth).length !== 3 + (auth.transport === undefined ? 0 : 1) + (auth.features === undefined ? 0 : 1)
+            || auth.nonce !== this.nonce
             || typeof auth.clientNonce !== 'string' || !/^[A-Za-z0-9_-]{22}$/.test(auth.clientNonce)) throw new Error('authentication failed')
           if (auth.transport !== undefined && (auth.transport !== 'binary-v1' || !offeredBinary)) throw new Error('invalid transport selection')
+          if (auth.features !== undefined && (!offeredPacketMux || !Array.isArray(auth.features)
+            || auth.features.length !== 1 || auth.features[0] !== 'packet-mux-v1')) throw new Error('invalid feature selection')
+          if (offeredPacketMux !== (auth.features !== undefined)) throw new Error('invalid feature selection')
           binaryTransport = auth.transport === 'binary-v1'
+          packetMux = auth.features !== undefined
           const raw = binaryTransport
           const traffic = new MobileCipher(Buffer.from(saved.secret, 'base64url'), `${saved.room.roomId}:${this.nonce}:${auth.clientNonce}`)
           this.traffic = traffic
-          const packets = new FullPackets(frame => this.transmit(socket, traffic, frame, raw),
-            (frame) => { carrier.accept(frame) }, fragmentWindow, raw)
           const failedTransport = (): void => {
             // An old epoch can finish rejecting after this socket authenticates a new one.
             if (this.socket === socket && this.packets === packets) socket.close(1011)
           }
+          const packets = new FullPackets(frame => this.transmit(socket, traffic, frame, raw),
+            (frame) => { carrier.accept(frame) }, fragmentWindow, raw, packetMux, failedTransport)
           // The paired device keeps one owner-identity Peer across reconnects.
           this.peer ??= this.ctx.connection.createPeer({ principal: { kind: 'owner' } })
-          const carrier = new FullCarrier(this.ctx, frame => packets.send(frame).catch((error: unknown) => {
+          const carrier = new FullCarrier(this.ctx, (frame, lane?: FullPacketLane) => packets.send(frame, lane).catch((error: unknown) => {
             failedTransport()
             throw error
-          }), this.peer, raw, (frame) => {
-            const delivery = packets.write(frame)
+          }), this.peer, raw, (frame, lane?: FullPacketLane) => {
+            const delivery = packets.write(frame, lane)
             void delivery.acknowledged.catch((_error: unknown) => { failedTransport() })
             return delivery.written
           })
@@ -287,7 +300,8 @@ export class FullMobileHost {
           this.carrier = carrier
           this.attempts = 0
           await this.transmit(socket, traffic, { type: 'ready', protocol: 2,
-            ...(binaryTransport ? { transport: 'binary-v1' } : {}) })
+            ...(binaryTransport ? { transport: 'binary-v1' } : {}),
+            ...(packetMux ? { features: ['packet-mux-v1'] } : {}) })
           return
         }
         if (binary !== binaryTransport) throw new Error('unexpected envelope')

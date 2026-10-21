@@ -6,6 +6,7 @@ import type {} from '@deepseek-ai/dsh-host-frontend-static'
 import type {} from '@deepseek-ai/dsh-client-connection'
 import type { PeerScope } from '@deepseek-ai/dsh-typert-protocol'
 import { z } from 'zod'
+import type { FullPacketLane } from './full-packets.ts'
 
 const BODY_CHUNK = 192 * 1024
 const id = z.string().regex(/^[A-Za-z0-9_-]{16,64}$/)
@@ -130,14 +131,14 @@ export class FullCarrier {
 
   /**
    * @param ctx - services of the current application.
-   * @param send - acknowledged packet writer.
+   * @param send - acknowledged packet writer with an optional latency class.
    * @param peer - caller identity dispatched requests speak for; the paired device's operator Peer.
    * @param binary - negotiated raw body encoding; omitted or false retains legacy base64.
    * @param writeStream - ordered, window-bounded local writer owning later acknowledgement failures; defaults to acknowledged writes.
    */
-  constructor(private readonly ctx: Context, private readonly send: (frame: object) => Promise<void>,
+  constructor(private readonly ctx: Context, private readonly send: (frame: object, lane?: FullPacketLane) => Promise<void>,
     private readonly peer: PeerScope, private readonly binary = false,
-    private readonly writeStream: (frame: object) => Promise<void> = send) {}
+    private readonly writeStream: (frame: object, lane?: FullPacketLane) => Promise<void> = send) {}
 
   /** @param value - reassembled encrypted client frame. */
   accept(value: unknown): void {
@@ -163,6 +164,7 @@ export class FullCarrier {
       = { abort: new AbortController(), inbox: new Inbox(), download: new Inbox(), upload: undefined, task: Promise.resolve() }
     this.operations.set(frame.id, operation)
     operation.task = (async () => {
+      let responseStarted = false
       try {
         if (frame.type === 'fetch') {
           if (!frame.url.startsWith('/') || frame.url.startsWith('//')) throw new Error('invalid application path')
@@ -202,6 +204,7 @@ export class FullCarrier {
           responseHeaders['cache-control'] = 'no-store'
           await this.send({ type: 'response', id: frame.id, status: response.status, headers: responseHeaders,
             ...(compression === undefined ? {} : { compression }) })
+          responseStarted = true
           const reader = bodyStream?.getReader()
           const demand = operation.download[Symbol.asyncIterator]()
           if (reader) {
@@ -215,26 +218,28 @@ export class FullCarrier {
                   operation.abort.signal.throwIfAborted()
                   await this.send({ type: 'body', id: frame.id,
                     data: this.binary ? next.value.subarray(offset, offset + BODY_CHUNK)
-                      : Buffer.from(next.value.subarray(offset, offset + BODY_CHUNK)).toString('base64url') })
+                      : Buffer.from(next.value.subarray(offset, offset + BODY_CHUNK)).toString('base64url') },
+                  next.value.length <= 16 * 1024 ? 'control' : 'bulk')
                 }
               }
             } finally { await reader.cancel(); reader.releaseLock() }
           }
-          await this.send({ type: 'end', id: frame.id })
+          await this.send({ type: 'end', id: frame.id }, 'control')
         } else {
           const stream = await this.ctx.typertGateway.wireStream.open(
             frame.endpoint, frame.payload, operation.inbox, this.peer, operation.abort.signal,
           )
           for await (const value of stream) {
             operation.abort.signal.throwIfAborted()
-            await this.writeStream({ type: 'item', id: frame.id, value })
+            await this.writeStream({ type: 'item', id: frame.id, value }, 'realtime')
           }
           operation.abort.signal.throwIfAborted()
-          await this.send({ type: 'finish', id: frame.id })
+          await this.send({ type: 'finish', id: frame.id }, 'realtime')
         }
       } catch (error) {
         if (!this.closed && !operation.abort.signal.aborted) {
-          await this.send({ type: 'error', id: frame.id, failure: this.ctx.typertGateway.wireStream.failure(error) })
+          await this.send({ type: 'error', id: frame.id, failure: this.ctx.typertGateway.wireStream.failure(error) },
+            frame.type === 'stream' ? 'realtime' : responseStarted ? 'bulk' : 'control')
         }
       } finally { operation.inbox.end(); operation.download.end(); operation.upload?.end(); this.operations.delete(frame.id) }
     })().catch((_error: unknown) => { this.close() })

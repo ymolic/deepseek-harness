@@ -4,9 +4,29 @@ import type { PeerScope } from '@deepseek-ai/dsh-typert-protocol'
 import { expect, it } from 'vitest'
 import { FullCarrier } from '../src/full-carrier.ts'
 import { isRecord } from '../src/protocol.ts'
+import type { FullPacketLane } from '../src/full-packets.ts'
 
 /** The paths under test forward the Peer without reading more than its caller identity. */
 const peer = { principal: { kind: 'owner' } } as PeerScope
+
+it('offers short HTTP response bodies to the control lane', async () => {
+  const ctx = new Context()
+  ctx.provide('frontendAssets', { fetch: async () => Response.json({ models: ['synthetic-model'] }) })
+  const lanes: { type: unknown; lane: FullPacketLane | undefined }[] = []
+  const ended = Promise.withResolvers<undefined>()
+  const carrier = new FullCarrier(ctx, async (frame, lane) => {
+    if (!isRecord(frame)) throw new Error('expected response frame')
+    lanes.push({ type: frame.type, lane })
+    if (frame.type === 'response') carrier.accept({ type: 'response-pull', id: 'short-response-0001' })
+    if (frame.type === 'end') ended.resolve(undefined)
+  }, peer, true)
+  try {
+    carrier.accept({ type: 'fetch', id: 'short-response-0001', url: '/state.json', method: 'GET', headers: {} })
+    await ended.promise
+    expect(lanes.find(frame => frame.type === 'body')?.lane).toBe('control')
+    expect(lanes.find(frame => frame.type === 'end')?.lane).toBe('control')
+  } finally { await carrier.settled(); await ctx.fiber.dispose() }
+})
 
 it.each([
   ['/assets/client.js', 'text/javascript', 200, true],

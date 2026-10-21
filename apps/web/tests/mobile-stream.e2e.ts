@@ -108,7 +108,7 @@ it.runIf(relayRoot).each([
     page = await browser.newPage({ viewport: { width: 390, height: 844 }, locale: 'zh-CN', isMobile: true, hasTouch: true })
     page.on('pageerror', error => pageErrors.push(error.message))
     page.on('crash', () => { console.info(`${name} mobile stream renderer crashed during ${stage}`) })
-    await page.routeWebSocket('**/ws/mobile', (client) => {
+    await page.routeWebSocket('**/ws/mobile?packetMux=v1', (client) => {
       const server = client.connectToServer()
       const socket = { client, server, hold: false, held: 0, stalled: false }
       sockets.push(socket)

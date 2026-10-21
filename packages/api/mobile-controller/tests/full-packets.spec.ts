@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
-import { FullPackets, fullDownloadWindow } from '../src/full-packets.ts'
-import { readPart } from '../src/full-binary.ts'
+import { FullPackets, fullDownloadWindow, packetMuxSupport } from '../src/full-packets.ts'
+import { packetBytes, partBytes, readPart } from '../src/full-binary.ts'
 import { isRecord } from '../src/protocol.ts'
 
 function acknowledgement(value: object): object {
@@ -18,6 +18,12 @@ describe('full-client encrypted packet framing', () => {
     expect(fullDownloadWindow(8, 32)).toBe(8)
     for (const value of [0, 33, 1.5, '32', null]) {
       expect(() => fullDownloadWindow(value, 32)).toThrow('fragment window')
+    }
+    expect(packetMuxSupport(undefined)).toBe(false)
+    expect(packetMuxSupport(['packet-mux-v1'])).toBe(true)
+    expect(packetMuxSupport(['another-feature'])).toBe(false)
+    for (const value of [[], ['packet-mux-v1', 'packet-mux-v1'], ['INVALID'], 'packet-mux-v1', null]) {
+      expect(() => packetMuxSupport(value)).toThrow('relay features')
     }
   })
 
@@ -118,6 +124,156 @@ describe('full-client encrypted packet framing', () => {
     } finally {
       packets.close()
       await settled
+    }
+  })
+
+  it('lets control fragments pass bulk packets only after packet multiplexing is negotiated', async () => {
+    for (const multiplex of [false, true]) {
+      const frames: Uint8Array[] = []
+      const packets = new FullPackets(async (frame) => { frames.push(frame as Uint8Array) }, () => {}, 32, true, multiplex)
+      let settled: Promise<unknown> | undefined
+      try {
+        const bulk = packets.write({ type: 'body', id: 'operation-id-0001', data: new Uint8Array(12000 * 3) }, 'bulk')
+        const control = packets.write({ type: 'item', id: 'operation-id-0002', value: 'control' }, 'control')
+        settled = Promise.allSettled([bulk.written, bulk.acknowledged, control.written, control.acknowledged])
+        await Promise.all([bulk.written, control.written])
+        const parts = frames.map(readPart)
+        const firstId = parts[0]?.id
+        expect(firstId).toBeDefined()
+        const firstControl = parts.findIndex(part => part.id !== firstId)
+        if (multiplex) expect(firstControl).toBe(1)
+        else expect(firstControl).toBeGreaterThan(1)
+        for (const frame of frames) await packets.accept(acknowledgement(frame))
+        await Promise.all([bulk.acknowledged, control.acknowledged])
+      } finally { packets.close(); await settled }
+    }
+  })
+
+  it('reserves control capacity when bulk and realtime fragments share the window', async () => {
+    const frames: object[] = []
+    const packets = new FullPackets(async (frame) => { frames.push(frame) }, () => {}, 8, true, true)
+    const bulk = packets.write({ type: 'body', id: 'operation-id-0001', data: new Uint8Array(120000) }, 'bulk')
+    const realtime = packets.write({ type: 'item', id: 'operation-id-0002', value: 'x'.repeat(30000) }, 'realtime')
+    const settled = Promise.allSettled([bulk.written, bulk.acknowledged, realtime.written, realtime.acknowledged])
+    let control: ReturnType<FullPackets['write']> | undefined
+    try {
+      await expect.poll(() => frames.length).toBe(7)
+      control = packets.write({ type: 'cancel', id: 'operation-id-0003' })
+      await control.written
+      expect(frames).toHaveLength(8)
+      expect(readPart(frames[7] as Uint8Array).end).toBe(true)
+    } finally {
+      packets.close()
+      await settled
+      await Promise.allSettled(control ? [control.written, control.acknowledged] : [])
+    }
+  })
+
+  it('does not start another packet beyond the peer aggregate reassembly budget', async () => {
+    const received: unknown[] = []
+    const frames: Uint8Array[] = []
+    const endpoints: { receiver?: FullPackets } = {}
+    const sender = new FullPackets(async (frame) => {
+      frames.push(frame as Uint8Array)
+      await endpoints.receiver?.accept(frame)
+    }, () => {}, 32, true, true)
+    const receiver = new FullPackets(async (frame) => { await sender.accept(frame) }, value => received.push(value), 8, true, true)
+    endpoints.receiver = receiver
+    const bulk = sender.write({ type: 'item', id: 'operation-id-0001', value: 'x'.repeat(16 * 1024 * 1024 - 128) }, 'bulk')
+    const control = sender.write({ type: 'item', id: 'operation-id-0002', value: 'x'.repeat(32000) }, 'control')
+    const settled = Promise.allSettled([bulk.written, bulk.acknowledged, control.written, control.acknowledged])
+    try {
+      await Promise.all([bulk.acknowledged, control.acknowledged])
+      const parts = frames.map(readPart)
+      const firstId = parts[0]!.id
+      const firstControl = parts.findIndex(part => part.id !== firstId)
+      expect(parts[firstControl - 1]?.end).toBe(true)
+      expect(received).toHaveLength(2)
+    } finally { sender.close(); receiver.close(); await settled }
+  })
+
+  it('keeps cancellation behind its own start packet while unrelated control passes', async () => {
+    const frames: object[] = []
+    const received: unknown[] = []
+    const endpoints: { receiver?: FullPackets } = {}
+    const sender = new FullPackets(async (frame) => {
+      frames.push(frame)
+      await endpoints.receiver?.accept(frame)
+    }, () => {}, 8, true, true)
+    const receiver = new FullPackets(async (frame) => { await sender.accept(frame) }, value => received.push(value), 8, true, true)
+    endpoints.receiver = receiver
+    const start = sender.write({ type: 'stream', id: 'operation-id-0001', payload: 'x'.repeat(120000) })
+    const cancel = sender.write({ type: 'cancel', id: 'operation-id-0001' })
+    const unrelated = sender.write({ type: 'fetch', id: 'operation-id-0002' })
+    const settled = Promise.allSettled([start, cancel, unrelated].flatMap(value => [value.written, value.acknowledged]))
+    try {
+      await Promise.all([start.acknowledged, cancel.acknowledged, unrelated.acknowledged])
+      expect(received).toEqual([
+        { type: 'fetch', id: 'operation-id-0002' },
+        { type: 'stream', id: 'operation-id-0001', payload: 'x'.repeat(120000) },
+        { type: 'cancel', id: 'operation-id-0001' },
+      ])
+    } finally { sender.close(); receiver.close(); await settled }
+  })
+
+  it.each([false, true])('does not deliver after closing during an ACK write with multiplex=%s', async (multiplex) => {
+    const entered = Promise.withResolvers<undefined>()
+    const release = Promise.withResolvers<undefined>()
+    const receive = vi.fn()
+    const packets = new FullPackets(async () => { entered.resolve(undefined); await release.promise }, receive, 8, true, multiplex)
+    const accepting = packets.accept(partBytes(Buffer.alloc(16, 1).toString('base64url'), 0, true,
+      packetBytes({ type: 'cancel', id: 'operation-id-0001' })))
+    try {
+      await entered.promise
+      packets.close()
+      release.resolve(undefined)
+      await accepting
+      expect(receive).not.toHaveBeenCalled()
+    } finally { packets.close(); release.resolve(undefined); await accepting }
+  })
+
+  it('reassembles bounded interleaved packets only when multiplexing is negotiated', async () => {
+    const firstId = Buffer.alloc(16, 1).toString('base64url')
+    const secondId = Buffer.alloc(16, 2).toString('base64url')
+    const first = packetBytes({ type: 'body', id: 'operation-id-0001', data: new Uint8Array(12001).fill(7) })
+    const second = packetBytes({ type: 'item', id: 'operation-id-0002', value: 'control' })
+    const interleaved = [
+      partBytes(firstId, 0, false, first.subarray(0, 12000)),
+      partBytes(secondId, 0, true, second),
+      partBytes(firstId, 1, true, first.subarray(12000)),
+    ]
+    const legacy = new FullPackets(async () => {}, () => {}, 8, true)
+    const received: unknown[] = []
+    const multiplexed = new FullPackets(async () => {}, value => received.push(value), 8, true, true)
+    try {
+      await legacy.accept(interleaved[0])
+      await expect(legacy.accept(interleaved[1])).rejects.toThrow('fragment gap')
+      for (const fragment of interleaved) await multiplexed.accept(fragment)
+      expect(received[0]).toEqual({ type: 'item', id: 'operation-id-0002', value: 'control' })
+      expect(received[1]).toMatchObject({ type: 'body', id: 'operation-id-0001' })
+      const body = received[1]
+      if (!isRecord(body) || !(body.data instanceof Uint8Array)) throw new Error('expected raw body')
+      expect(Buffer.from(body.data)).toEqual(Buffer.alloc(12001, 7))
+    } finally { legacy.close(); multiplexed.close() }
+  })
+
+  it('bounds incomplete multiplexed packets and closes on reassembly timeout', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    const failed = vi.fn()
+    const packets = new FullPackets(async () => {}, () => {}, 8, true, true, failed)
+    try {
+      for (let index = 0; index < 8; index++) {
+        await packets.accept(partBytes(Buffer.alloc(16, index).toString('base64url'), 0, false, new Uint8Array([index])))
+      }
+      await expect(packets.accept(partBytes(Buffer.alloc(16, 9).toString('base64url'), 0, false, new Uint8Array([9]))))
+        .rejects.toThrow('reassembly limit')
+      await vi.advanceTimersByTimeAsync(30000)
+      expect(failed).toHaveBeenCalledOnce()
+      expect(failed.mock.calls[0]?.[0]).toMatchObject({ message: 'fragment reassembly timeout' })
+      await expect(packets.send({ type: 'item' })).rejects.toThrow('closed')
+    } finally {
+      packets.close()
+      vi.useRealTimers()
     }
   })
 
