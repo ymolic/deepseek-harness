@@ -96,7 +96,7 @@ describe.skipIf(!existsSync(builtHost))('built Desktop welcome flow', () => {
       mkdirSync(home)
       vi.stubEnv('DSH_HOME', home)
       vi.stubEnv('DSH_TELEMETRY_MODE', 'DISABLED')
-      const project = prepareDevelopmentProject({
+      const project = await prepareDevelopmentProject({
         projectDir: join(root, 'project'),
         cliDir: join(repository, 'apps/cli'),
         hostDir: join(repository, 'apps/desktop-host'),

@@ -196,11 +196,13 @@ pnpm run dev:desktop
 
 Development Harness state defaults to `apps/desktop/.desktop-build/development/home`, the disposable npm project lives at `apps/desktop/.desktop-build/development/project`, and Electron browser data lives at `apps/desktop/.desktop-build/development/electron-user-data`. Sessions, settings, credentials, package links, and browser data therefore stay out of the user's normal Harness home. An explicit `DSH_HOME` replaces only the development Harness home. Renderer DevTools opens automatically; Main, Renderer, and dsh Host debugging listen on ports 9229, 9222, and 9230. `DSH_DESKTOP_MAIN_INSPECT_PORT`, `DSH_DESKTOP_RENDERER_DEBUG_PORT`, and `DSH_DESKTOP_HOST_INSPECT_PORT` replace those ports, while `DSH_DESKTOP_OPEN_DEVTOOLS=0` keeps the detached Renderer tools closed.
 
-After an explicit build, `start:desktop` reconstructs the disposable project and launches the existing artifacts without building again:
+After an explicit build, `start:desktop` launches the existing artifacts without building again. Development launches reuse the dependency projection when the resolved package graph, workspace lockfile, release and target match, and its metadata and links remain intact:
 
 ```sh
 pnpm run start:desktop
 ```
+
+Development runtime preparation reuses resources only while the runtime inputs, package-manager files, Office assets and every prepared output byte match their recorded fingerprints. First preparation, changed inputs or damaged files trigger staged reconstruction and full native smoke checks before replacement; ordinary reuse hashes files without executing interpreters or Office round trips. Cross-process locks serialize preparation, failed staging preserves previous resources, and packaging retains its explicit preparation and verification path.
 
 The Web counterparts are `pnpm run dev:web` and `pnpm run start:web`, documented in the [development guide](../../docs/development.md). Workspace development runs the current CLI and private Desktop Host packages under Electron RunAsNode. Plugin management and recovery use `$DSH_HOME/profiles/desktop`, separate from the disposable workspace runtime. The Host uses runtime module resolution in both development and packaged builds without creating official-package fallback links; developer-installed packages, including links, retain native priority. Use an unpacked application to exercise Electron RunAsNode, bundled pnpm, bundled dsh resources, plugin installation and repair paths.
 

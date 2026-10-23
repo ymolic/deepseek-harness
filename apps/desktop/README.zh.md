@@ -196,11 +196,13 @@ pnpm run dev:desktop
 
 开发 Harness 状态默认写入 `apps/desktop/.desktop-build/development/home`，一次性 npm 项目位于 `apps/desktop/.desktop-build/development/project`，Electron 浏览器数据则位于 `apps/desktop/.desktop-build/development/electron-user-data`。因此，会话、设置、凭据、包链接和浏览器数据都不会进入用户正常使用的 Harness home；显式 `DSH_HOME` 只会替换开发 Harness home。Renderer DevTools 默认自动打开，Main、Renderer 和 dsh Host 调试端口依次为 9229、9222 和 9230。`DSH_DESKTOP_MAIN_INSPECT_PORT`、`DSH_DESKTOP_RENDERER_DEBUG_PORT` 与 `DSH_DESKTOP_HOST_INSPECT_PORT` 可以替换这些端口，`DSH_DESKTOP_OPEN_DEVTOOLS=0` 则保持 Renderer 调试窗口关闭。
 
-显式构建完成后，`start:desktop` 会重新生成一次性项目，并跳过构建直接启动已有产物：
+显式构建完成后，`start:desktop` 会跳过构建直接启动已有产物。开发启动会在已解析的包依赖图、工作区锁文件、发布版本和目标平台一致，且元数据与链接完整时复用依赖投影：
 
 ```sh
 pnpm run start:desktop
 ```
+
+开发运行时仅在运行时输入、包管理器文件、Office 资源及所有已准备文件的字节内容都与记录的指纹一致时复用。首次准备、输入变化或文件损坏会触发临时目录重建，并在替换前完成原生完整自检；普通复用只计算文件摘要，不启动解释器或执行 Office 文件往返测试。跨进程锁串行化准备操作，临时目录准备失败会保留旧资源，打包仍沿用显式准备与验证流程。
 
 Web 侧的对应命令是 `pnpm run dev:web` 与 `pnpm run start:web`，见[开发指南](../../docs/development.zh.md)。Workspace 开发使用 Electron RunAsNode 运行当前 CLI 与私有 Desktop Host 包，插件管理和恢复使用 `$DSH_HOME/profiles/desktop`，与一次性工作区运行时分离。Host 在开发与打包构建中都使用 runtime 模块解析，不创建官方包的 fallback 链接；开发者安装的包（包括链接）保留原生优先级。需要验证 Electron RunAsNode、内置 pnpm、内置 dsh 资源、插件安装和修复时，应运行未封装安装器的应用目录。
 

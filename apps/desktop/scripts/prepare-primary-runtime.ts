@@ -1,11 +1,12 @@
 /** Desktop resource locations and signing-aware verification for the shared runtime builder. */
 
-import { readFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { preparePrimaryRuntime as preparePayload, smokePrimaryRuntime as smokePayload } from '../../../scripts/primary-runtime/prepare.ts'
 import { parsePrimaryRuntime, workspaceDependencyPaths } from '../../../packages/skill/tool-workspace-dependencies/src/index.ts'
 import { resolveDesktopBuildTarget, resolveDesktopTargetBuildPaths } from './desktop-build-paths.mjs'
 import { scrubWindowsSigningEnvironment } from './windows-sign.mjs'
+import { withFileLock } from '@deepseek-ai/dsh-atomic-write'
 
 /**
  * Prepare Desktop resources for its selected packaging target.
@@ -15,8 +16,13 @@ import { scrubWindowsSigningEnvironment } from './windows-sign.mjs'
 export async function preparePrimaryRuntime(options: { deferSmoke?: boolean } = {}): Promise<void> {
   const paths = resolveDesktopTargetBuildPaths()
   const { version } = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { version: string }
-  await preparePayload({ target: resolveDesktopBuildTarget(), output: paths.runtime, cache: paths.downloads, version })
-  if (!options.deferSmoke) smokePrimaryRuntime(join(paths.runtime, 'primary-runtime'))
+  mkdirSync(paths.runtime, { recursive: true })
+  const record = join(paths.runtime, '.development-preparation.json')
+  await withFileLock(record, async () => {
+    rmSync(record, { force: true })
+    await preparePayload({ target: resolveDesktopBuildTarget(), output: paths.runtime, cache: paths.downloads, version })
+    if (!options.deferSmoke) smokePrimaryRuntime(join(paths.runtime, 'primary-runtime'))
+  }, { waitMs: 600_000 })
 }
 
 /**

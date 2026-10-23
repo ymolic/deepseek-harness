@@ -2,22 +2,22 @@
 
 import {
   existsSync,
-  lstatSync,
   mkdirSync,
   readFileSync,
   readdirSync,
   realpathSync,
-  rmSync,
   symlinkSync,
-  unlinkSync,
   writeFileSync,
 } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { createHash } from 'node:crypto'
+import { basename, dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { createDevelopmentProjectMetadata } from '../src/project-manager.ts'
 import type { DesktopRelease } from '../src/release.ts'
 import { DESKTOP_RUNTIME_FILE, type DesktopRuntimeDescriptor } from '../src/runtime-tree.ts'
 import type { DesktopAutoUpdateTarget } from './desktop-auto-update-environment.mjs'
 import { desktopTargetPlatform } from './desktop-build-paths.mjs'
+import { preparationFingerprint, prepareCachedDirectories } from './preparation-cache.ts'
 
 interface PackageManifest {
   readonly name?: string
@@ -27,7 +27,7 @@ interface PackageManifest {
 
 /** Inputs whose locations differ between the launcher and isolated tests. */
 export interface DevelopmentProjectOptions {
-  /** Directory replaced with the generated development project. */
+  /** Build-owned directory reused while its complete dependency projection matches. */
   readonly projectDir: string
   /** Current workspace's `apps/cli` package directory. */
   readonly cliDir: string
@@ -39,64 +39,43 @@ export interface DevelopmentProjectOptions {
   readonly release: DesktopRelease
   /** Build target whose prepared payload the disposable project runs against. */
   readonly target: DesktopAutoUpdateTarget
+  /** Workspace lockfile; omission identifies the projection by its resolved dependency graph alone. */
+  readonly lockfile?: string
 }
 
 function readManifest(path: string): PackageManifest {
   return JSON.parse(readFileSync(path, 'utf8')) as PackageManifest
 }
 
-function removeOwnedPath(path: string): void {
-  let stat: ReturnType<typeof lstatSync>
-  try {
-    stat = lstatSync(path)
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return
-    throw error
-  }
-  if (stat.isSymbolicLink()) {
-    unlinkSync(path)
-    return
-  }
-  if (stat.isDirectory()) {
-    rmSync(path, { recursive: true })
-    return
-  }
-  unlinkSync(path)
-}
-
 function linkDirectory(source: string, destination: string): void {
   mkdirSync(dirname(destination), { recursive: true })
-  symlinkSync(realpathSync(source), destination, process.platform === 'win32' ? 'junction' : 'dir')
+  symlinkSync(source, destination, process.platform === 'win32' ? 'junction' : 'dir')
 }
 
-function mirrorDependencyLinks(sourceRoot: string, destinationRoot: string): string[] {
-  const names: string[] = []
+function dependencyLinks(sourceRoot: string): Map<string, string> {
+  const links = new Map<string, string>()
   for (const entry of readdirSync(sourceRoot, { withFileTypes: true })) {
     if (entry.name === '.bin') continue
     const source = join(sourceRoot, entry.name)
     if (entry.name.startsWith('@') && (entry.isDirectory() || entry.isSymbolicLink())) {
-      mkdirSync(join(destinationRoot, entry.name), { recursive: true })
       for (const scoped of readdirSync(source, { withFileTypes: true })) {
         if (!scoped.isDirectory() && !scoped.isSymbolicLink()) continue
-        linkDirectory(join(source, scoped.name), join(destinationRoot, entry.name, scoped.name))
-        names.push(`${entry.name}/${scoped.name}`)
+        links.set(`${entry.name}/${scoped.name}`, realpathSync.native(join(source, scoped.name)))
       }
       continue
     }
     if (entry.isDirectory() || entry.isSymbolicLink()) {
-      linkDirectory(source, join(destinationRoot, entry.name))
-      names.push(entry.name)
+      links.set(entry.name, realpathSync.native(source))
     }
   }
-  return names
+  return links
 }
 
 /** Configured workspace plugins must resolve from the profile even when pnpm does not hoist them. */
-function mirrorWorkspaceDependencies(roots: readonly string[], destinationRoot: string): string[] {
-  const names: string[] = []
+function workspaceDependencies(roots: readonly string[], links: Map<string, string>): void {
   const visited = new Set<string>()
   const visit = (directory: string): void => {
-    const source = realpathSync(directory)
+    const source = realpathSync.native(directory)
     if (visited.has(source)) return
     visited.add(source)
     const manifest = readManifest(join(source, 'package.json'))
@@ -106,23 +85,14 @@ function mirrorWorkspaceDependencies(roots: readonly string[], destinationRoot: 
       if (!existsSync(dependency)) {
         throw new Error(`desktop development: ${name} is missing from ${source}; run pnpm install`)
       }
-      const destination = join(destinationRoot, ...name.split('/'))
-      removeOwnedPath(destination)
-      linkDirectory(dependency, destination)
-      names.push(name)
+      links.set(name, realpathSync.native(dependency))
       visit(dependency)
     }
   }
   for (const directory of roots) visit(directory)
-  return names
 }
 
-/**
- * Replace one disposable project with links to the current built workspace.
- * @param options - Project destination, CLI package, release identity, and build target.
- * @returns the absolute project directory supplied by the caller.
- */
-export function prepareDevelopmentProject(options: DevelopmentProjectOptions): string {
+function validateSource(options: DevelopmentProjectOptions): void {
   const cliManifest = readManifest(join(options.cliDir, 'package.json'))
   if (cliManifest.name !== '@deepseek-ai/dsh' || cliManifest.version !== options.release.version) {
     throw new Error(
@@ -143,27 +113,47 @@ export function prepareDevelopmentProject(options: DevelopmentProjectOptions): s
   if (!existsSync(join(options.hostDir, 'lib', 'index.js'))) {
     throw new Error('desktop development: apps/desktop-host/lib/index.js is missing; run pnpm run build')
   }
+}
 
-  removeOwnedPath(options.projectDir)
-  createDevelopmentProjectMetadata(options.projectDir, options.release)
-  const destinationModules = join(options.projectDir, 'node_modules')
-  mkdirSync(destinationModules, { recursive: true })
-  const names = [
-    ...mirrorDependencyLinks(options.dependencyDir, destinationModules),
-    ...mirrorWorkspaceDependencies([options.cliDir, options.hostDir], destinationModules),
-  ]
-  const dshLink = join(destinationModules, '@deepseek-ai', 'dsh')
-  removeOwnedPath(dshLink)
-  linkDirectory(options.cliDir, dshLink)
-  const hostLink = join(destinationModules, '@deepseek-ai', 'dsh-desktop-host')
-  removeOwnedPath(hostLink)
-  linkDirectory(options.hostDir, hostLink)
-  const sharedPackages = [...new Set([...names, '@deepseek-ai/dsh', '@deepseek-ai/dsh-desktop-host'])].flatMap((name) => {
-    const manifest = readManifest(join(destinationModules, name, 'package.json'))
-    return typeof manifest.version === 'string' ? [{ name, version: manifest.version, path: `node_modules/${name}` }] : []
+/**
+ * Reuse a complete dependency projection or replace it with links to the current built workspace.
+ * @param options - Project destination, CLI package, release identity, and build target.
+ * @returns The project directory after graph, lockfile, release and output verification.
+ * Missing source dependencies reject without modifying the existing projection.
+ */
+export async function prepareDevelopmentProject(options: DevelopmentProjectOptions): Promise<string> {
+  const plan = () => {
+    validateSource(options)
+    const links = dependencyLinks(options.dependencyDir)
+    workspaceDependencies([options.cliDir, options.hostDir], links)
+    links.set('@deepseek-ai/dsh', realpathSync.native(options.cliDir))
+    links.set('@deepseek-ai/dsh-desktop-host', realpathSync.native(options.hostDir))
+    const entries = [...links].sort(([left], [right]) => left.localeCompare(right))
+    const manifests = entries.map(([name, source]) => ({ name, source, manifest: readManifest(join(source, 'package.json')) }))
+    const identity = createHash('sha256').update(JSON.stringify({ release: options.release, target: options.target,
+      manifests: manifests.map(({ name, source, manifest }) => [name, source, manifest.name, manifest.version,
+        Object.entries(manifest.dependencies ?? {}).sort(([left], [right]) => left.localeCompare(right))]),
+      implementation: preparationFingerprint([fileURLToPath(import.meta.url), fileURLToPath(new URL('../src/project-manager.ts', import.meta.url)),
+        fileURLToPath(new URL('./preparation-cache.ts', import.meta.url))]),
+      lockfile: options.lockfile === undefined ? undefined : readFileSync(options.lockfile, 'utf8'),
+    })).digest('hex')
+    const sharedPackages = manifests.flatMap(({ name, manifest }) => {
+      return typeof manifest.version === 'string' ? [{ name, version: manifest.version, path: `node_modules/${name}` }] : []
+    })
+    const runtime: DesktopRuntimeDescriptor = { schemaVersion: 1, release: options.release,
+      ...desktopTargetPlatform(options.target), sharedPackages, files: [] }
+    return { links, identity, runtime }
+  }
+  const name = basename(options.projectDir)
+  await prepareCachedDirectories({ root: dirname(options.projectDir), directories: [name], record: `.${name}-preparation.json`,
+    identity: () => plan().identity,
+    prepare: async (staging) => {
+      const project = join(staging, name)
+      const { links, runtime } = plan()
+      createDevelopmentProjectMetadata(project, options.release)
+      for (const [dependency, source] of links) linkDirectory(source, join(project, 'node_modules', dependency))
+      writeFileSync(join(project, DESKTOP_RUNTIME_FILE), `${JSON.stringify(runtime, undefined, 2)}\n`)
+    },
   })
-  const runtime: DesktopRuntimeDescriptor = { schemaVersion: 1, release: options.release,
-    ...desktopTargetPlatform(options.target), sharedPackages, files: [] }
-  writeFileSync(join(options.projectDir, DESKTOP_RUNTIME_FILE), `${JSON.stringify(runtime, undefined, 2)}\n`)
   return options.projectDir
 }
