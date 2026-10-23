@@ -127,9 +127,10 @@ export class ApiSessionList {
   /**
    * Read every visible attached and persisted Session without activating an Agent.
    * @param signal - optional cancellation for persistence reads and summary generation.
+   * @param projectionKeys - optional keys to include in returned hints without changing summary metadata.
    * @returns visible Session summaries ordered by activity.
    */
-  async list(signal?: AbortSignal): Promise<SessionSummary[]> {
+  async list(signal?: AbortSignal, projectionKeys?: readonly string[]): Promise<SessionSummary[]> {
     signal?.throwIfAborted()
     const records = await this.ctx.sessionQuery.listSessions(signal)
     signal?.throwIfAborted()
@@ -161,7 +162,17 @@ export class ApiSessionList {
     }
     signal?.throwIfAborted()
     items.sort((left, right) => right.updatedAt - left.updatedAt)
-    return items
+    if (projectionKeys === undefined) return items
+    const selected = new Set(projectionKeys)
+    return items.map((item) => {
+      const { projections, ...summary } = item
+      if (projections === undefined) return item
+      const values = Object.fromEntries(
+        Object.entries(projections.values).filter(([key]) => selected.has(key)),
+      ) as SessionProjectionValues
+      if (Object.keys(values).length === 0) return summary
+      return { ...summary, projections: { ...projections, values } }
+    })
   }
 
   private summarizeCold({ header, formatStatus }: SessionRecord): SessionSummary {

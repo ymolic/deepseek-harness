@@ -27,6 +27,13 @@ import { Session } from './session.ts'
 import type { SessionRemotes } from './remotes.ts'
 import type { SessionTarget } from '../contract/sessions.ts'
 
+// Directory consumers need these hints; opened Sessions obtain complete values
+// through their control, follow, or explicit projection baselines.
+const LIST_PROJECTION_KEYS = [
+  'title', 'sessionListMetadata', 'agentPreset', 'subagentCatalog', 'subagent',
+  'subagentTiming', 'tokenUsage', 'agentTeam', 'modelSelection',
+] as const
+
 function sessionSeqCursor(value: number): SessionSeqCursor {
   return value === -1 ? -1 : SessionSeq(value)
 }
@@ -420,7 +427,7 @@ export class SessionManager {
     this.notifier.markDirty()
     this.listInflight = (async () => {
       try {
-        const result = await this.remote.session.list({})
+        const result = await this.remote.session.list({ projectionKeys: LIST_PROJECTION_KEYS })
         if (this.listMutations !== mutations) return
         if (result.ok) {
           const baseline: SessionSummary[] = this.listPhase === 'pending'

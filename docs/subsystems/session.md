@@ -841,11 +841,11 @@ inspect( sessionId: SessionId, signal?: AbortSignal, ): Promise<SessionInspectio
 
 /**
  * Read all visible Session rows without resuming an Agent.
- * @param _request - reserved empty list request.
+ * @param request - optional projection keys to include in list hints.
  * @param signal - cancellation for persistence reads and summary generation.
  * @returns visible Session summaries ordered by activity.
  */
-@Remote('list') async list(_request: SessionListRequest, signal: AbortSignal): Promise<SessionListValue>
+@Remote('list') async list(request: SessionListRequest, signal: AbortSignal): Promise<SessionListValue>
 
 /**
  * Search visible Session content without resuming an Agent. A non-owner

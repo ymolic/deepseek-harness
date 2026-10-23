@@ -268,13 +268,13 @@ export class SessionController extends TypertRemoteService {
 
   /**
    * Read all visible Session rows without resuming an Agent.
-   * @param _request - reserved empty list request.
+   * @param request - optional projection keys to include in list hints.
    * @param signal - cancellation for persistence reads and summary generation.
    * @returns visible Session summaries ordered by activity.
    */
   @Remote('list')
-  async list(_request: SessionListRequest, signal: AbortSignal): Promise<SessionListValue> {
-    const items = await this.listState.list(signal)
+  async list(request: SessionListRequest, signal: AbortSignal): Promise<SessionListValue> {
+    const items = await this.listState.list(signal, request.projectionKeys)
     return { items: items.filter(item => this.ctx.remoteAccess.allows({ kind: 'session', id: item.sessionId })) }
   }
 

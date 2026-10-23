@@ -51,7 +51,7 @@ export interface SessionListMetadata {
 }
 
 /**
- * Every available wire value a Session-list row carries as partial, possibly
+ * Available wire values a Session-list row carries as partial, possibly
  * stale hints. `kind` and `asOfSeq` are independent facts: `kind` says which
  * sequence space `asOfSeq` belongs to, and therefore how a client may merge
  * the block; `asOfSeq` is the producer's watermark in that space.
@@ -266,6 +266,8 @@ export interface SkillListValue {
 /** Session list request. */
 export interface SessionListRequest {
   readonly cursor?: string
+  /** Projection hints to include; omission selects all available keys and an empty array omits the column. */
+  readonly projectionKeys?: readonly string[]
 }
 
 /** Session list response value. */

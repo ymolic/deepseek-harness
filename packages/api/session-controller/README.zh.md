@@ -35,7 +35,7 @@ Client journal 在发布 follow 快照、live entry 或历史页之前验证当�
 
 每个 Remote 端点都受访问控制：principal 不是 owner 的 Peer 只有在本次调用访问的每个资源上，该 principal kind 在 [`dsh-api-remote-access`](../remote-access/README.zh.md) 中的 policy 都有某个 binding 授予列出该 action 的 role 时，才能调用该端点（[Peer 身份属性 Agent Note](../../../.agents/notes/implemented/architecture/2026-10-12-peer-principal-and-remote-access.zh.md)）。控制器注入 `remoteAccess`，并经 `typert.resources` 以默认字段 `sessionId` 登记 `session` 资源种类。`session/page` 与 `session/follow` 在 `@Remote({ resources })` 中声明 `session` 读取函数：对普通 Session 地址读 `request.address.sessionId`，对 subagent 地址读 `request.address.childSessionId`；父会话的访问权是否覆盖其子会话由 policy 决定。`session/projections` 从 `request.sessionId` 读取会话资源，因此重连的读者只会重新读取它可读的会话的 projections。`session/list`、`session/search` 与 `session/control` 不读取资源，其调用访问 `global` 资源，需要 `global` role；对非 owner 调用方，`session/list` 只返回其 Session 被 `ctx.remoteAccess.allows()` 按同一 action 允许的行，`session/search` 只返回这类 Session 的命中，`session/control` 也只返回这类 Session 的 baseline projection 与 projection 帧，因此该 action 也要列在 `session` role 中；owner 的结果不过滤。`session/prompt` 在其 Remote 方法内构造持久的 `user-rpc` 消息 source，且只为非 owner 调用方记录经 `principalOf(this.ctx.invocation)` 读取的 `principal`；不带 `principal` 的 source 属于 owner。
 
-列表行在状态可用时携带 `formatStatus`，Client 无需请求其投影即可识别需要迁移的 Session。
+列表行在状态可用时携带 `formatStatus`，Client 无需请求其投影即可识别需要迁移的 Session。`session.list` 接受可选的 `projectionKeys`，用于选择返回的部分提示。省略此字段时保留所有可用提示，包括插件扩展；空数组或没有匹配的可用 key 时省略投影列。缺少的 key 仍表示未知。选择不改变行元数据、排序、提示种类或水位，也不改变 follow 或显式投影读取提供的完整投影。
 
 Host 仅在配置的工作时间片耗尽时，于完整条目之间让出事件循环；剩余工作较少时直接返回，不强制让出。每行及每次让出之后检查请求取消，取消时拒绝返回部分结果。每行同步计算；列表不承诺跨 Session 的统一快照。已经进入冷态队列的 Session 若在让出期间接入，仍返回缓存行：Client 对进行中请求的变更重放会纠正其可用性，带序号的投影会覆盖缓存提示。
 

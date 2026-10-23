@@ -570,6 +570,56 @@ describe('session.list projections column', () => {
     })
   })
 
+  it.each(['live', 'cold'] as const)('selects %s list hints without changing summary metadata or cached values', async (source) => {
+    const { ctx, session } = await harness(true)
+    ctx.sessionProjections.register(lastUserUnit())
+    ctx.sessionProjections.register(titleProjectionDefinition)
+    const gateway = remote(ctx)
+    await new Promise(resolve => setTimeout(resolve, 0))
+    session.append('turn/start', { turn: 1 })
+    const text = 'synthetic plugin detail '.repeat(2_000)
+    const prompt = session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text }], source: { kind: 'user' },
+    }), { surfaceOp: 'append' })
+    session.append('session/title', { title: 'Listed title', messageSeqs: [prompt.seq], source: { kind: 'user' } })
+    const snapshot = ctx.sessionProjections.cachedSnapshot(session)
+    if (snapshot === undefined) throw new Error('expected materialized projections')
+    const cached = Object.freeze({ ...snapshot, values: Object.freeze(snapshot.values) })
+    const id = source === 'live' ? session.id : SessionId('filtered-cold-listing')
+    if (source === 'cold') {
+      const load = () => { throw new Error('list must not stat or load event logs') }
+      ctx.provide('sessionPersistence', testSessionPersistence(ctx, {
+        list: async () => [{ ...session.header, id }], stat: load, inspect: load, open: load,
+      }) as never)
+      ctx.provide('sessionProjectionCache', {
+        cachedSnapshot: (meta: SessionHeader) => meta.id === id ? cached : undefined,
+      } as never)
+    }
+    const baseline = await gateway.list({})
+    if (!baseline.ok) throw new Error('expected a Session list')
+    const full = baseline.value.items.find(item => item.sessionId === id)
+    expect(full?.projections?.values['test/last-user']).toEqual({ text })
+    expect(full?.blank).toBe(false)
+    expect(full?.updatedAt).toBe(prompt.time)
+
+    const selected = await gateway.list({ projectionKeys: ['title', 'missing', 'title'] })
+    if (!selected.ok) throw new Error('expected selected list hints')
+    const row = selected.value.items.find(item => item.sessionId === id)
+    expect(row).toMatchObject({ blank: full?.blank, updatedAt: full?.updatedAt })
+    expect(row?.projections).toEqual({
+      kind: source === 'live' ? 'sequenced' : 'cached',
+      asOfSeq: full?.projections?.asOfSeq,
+      values: { title: 'Listed title' },
+    })
+    const empty = await gateway.list({ projectionKeys: [] })
+    if (!empty.ok) throw new Error('expected a Session list without hints')
+    const withoutHints = empty.value.items.find(item => item.sessionId === id)
+    expect(withoutHints).toMatchObject({ blank: full?.blank, updatedAt: full?.updatedAt })
+    expect(withoutHints).not.toHaveProperty('projections')
+    expect(full?.projections?.values['test/last-user']).toEqual({ text })
+    expect(cached.values['test/last-user']).toEqual({ text })
+  })
+
   it('keeps persisted host-only state out of a cold session.list response', async () => {
     const root = await mkdtemp(join(tmpdir(), 'dsh-api-projcache-'))
     const ctx = new Context()

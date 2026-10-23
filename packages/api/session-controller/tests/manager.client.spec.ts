@@ -545,6 +545,10 @@ describe('list lifecycle', () => {
     gate.resolve(ok({ items: [summary(S2, { updatedAt: 200 }), summary(S1)] as never[] }))
     await Promise.all([first, second])
     expect(remote.session.list).toHaveBeenCalledOnce()
+    expect(remote.session.list).toHaveBeenCalledWith({ projectionKeys: [
+      'title', 'sessionListMetadata', 'agentPreset', 'subagentCatalog', 'subagent',
+      'subagentTiming', 'tokenUsage', 'agentTeam', 'modelSelection',
+    ] })
     const snapshot = manager.getListSnapshot()
     expect(snapshot.state).toBe('idle')
     expect(snapshot.items.map(i => i.sessionId)).toEqual([S2, S1])
