@@ -53,6 +53,11 @@ export const PAGE_MESSAGES = 50
 
 const HISTORY_PAGE_OPTIONS = { maxMessages: 500, turnWindow: { minMessages: PAGE_MESSAGES, minTurns: 2 } }
 
+const INITIAL_HISTORY_PAGE_OPTIONS = {
+  ...HISTORY_PAGE_OPTIONS,
+  turnWindow: { ...HISTORY_PAGE_OPTIONS.turnWindow, minMessages: 10 },
+}
+
 /** Minimum messages per page while a turn jump loops backwards. */
 export const JUMP_PAGE_MESSAGES = 200
 
@@ -390,7 +395,7 @@ export class Session implements SessionFace {
     return { ok: true, value: { matched: result.value !== undefined } }
   }
 
-  /** First open: pull the tail page (idempotent — in-flight/already-open returns the existing promise). */
+  /** Pull the initial tail window; concurrent and already-open callers reuse the current open. */
   open(): Promise<void> {
     if (this.openState === 'open') return Promise.resolve()
     if (this.openPromise !== null) return this.openPromise
@@ -628,7 +633,7 @@ export class Session implements SessionFace {
     })
     this.events = events
     try {
-      await events.open(HISTORY_PAGE_OPTIONS)
+      await events.open(INITIAL_HISTORY_PAGE_OPTIONS)
       if (generation !== this.openGeneration || this.events !== events) return
       this.openState = 'open'
     } catch (error) {

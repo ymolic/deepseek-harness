@@ -51,6 +51,8 @@ export interface Config {
   readonly requestTimeoutMs: number
   /** Maximum unacknowledged full-client download fragments; 1-32, independent of phone uploads. */
   readonly fullFragmentWindow: number
+  /** Minimum binary stream-item packet size to gzip, from 1 KiB through 16 MiB; requires negotiated support. */
+  readonly fullCompressionMinBytes: number
   /** Periodic interval in milliseconds for coalescing changed text into replacement snapshots. */
   readonly flushMs: number
   /** Maximum UTF-8 bytes of recent conversation text retained for the phone. */
@@ -90,6 +92,7 @@ export class MobileController extends TypertRemoteService {
     authorizationMs: z.natural().min(1000).max(600000).default(600000),
     requestTimeoutMs: z.natural().min(100).max(15000).default(8000),
     fullFragmentWindow: z.natural().min(1).max(32).default(32),
+    fullCompressionMinBytes: z.natural().min(1024).max(16 * 1024 * 1024).default(32 * 1024),
     flushMs: z.natural().min(100).max(1000).default(250),
     historyBytes: z.natural().min(1000).max(16000).default(16000),
   })

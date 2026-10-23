@@ -83,12 +83,11 @@ export class ModelCatalogDirectory {
 
   /**
    * Invalidate the loaded catalog; the next explicit menu read reloads it.
-   * @param clear - whether values from the previous Host generation must be hidden.
    */
-  private invalidate(clear = false): void {
+  private invalidate(): void {
     this.generation += 1
     this.inflight = undefined
-    const value = clear ? null : this.store.getSnapshot().value
+    const value = this.store.getSnapshot().value
     this.store.set({ value, status: 'idle', error: null })
   }
 
@@ -98,10 +97,10 @@ export class ModelCatalogDirectory {
     void this.load().catch(() => { /* the selector exposes the shared error */ })
   }
 
-  /** Clear Host-specific values and load the replacement Host generation. */
+  /** Retain the displayed catalog while validating the replacement Host generation. */
   resetGeneration(): void {
     this.reasoning.clear()
-    this.invalidate(true)
+    this.invalidate()
     void this.load().catch(() => { /* the selector exposes the shared error */ })
   }
 }

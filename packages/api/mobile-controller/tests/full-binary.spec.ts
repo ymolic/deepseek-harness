@@ -1,13 +1,30 @@
 /** Binary parsing, AEAD vectors and unchanged demand/window admission. */
 import { randomBytes } from 'node:crypto'
+import { gunzipSync } from 'node:zlib'
 import { expect, it } from 'vitest'
 import { MobileCipher, isRecord } from '../src/protocol.ts'
-import { FULL_BINARY, binaryRelaySupport, binaryHeader, packetBytes, readPacket, partBytes, readPart } from '../src/full-binary.ts'
+import { FULL_BINARY, binaryRelaySupport, binaryHeader, packetBytes, readPacket, partBytes, readPart, compressedItem } from '../src/full-binary.ts'
 import { FullPackets } from '../src/full-packets.ts'
 import vectors from './binary-v1.json' with { type: 'json' }
 
 const key = Buffer.from(Array.from({ length: 32 }, (_, index) => index))
 const id = 'AAECAwQFBgcICQoLDA0ODw'
+
+it('compresses large stream items before framing and preserves their exact application packet', async () => {
+  const frame = { type: 'item' as const, id, value: { text: 'synthetic history 中文 '.repeat(20000) } }
+  const raw = packetBytes(frame)
+  const compressed = packetBytes(await compressedItem(frame, 32768))
+  expect(compressed[0]).toBe(4)
+  expect(compressed.readUInt32BE(2 + id.length)).toBe(raw.length)
+  expect(gunzipSync(compressed.subarray(6 + id.length))).toEqual(raw)
+  expect(compressed.length).toBeLessThan(raw.length / 4)
+  expect(await compressedItem(frame, 0)).toBe(frame)
+  expect(await compressedItem(frame, raw.length + 1)).toBe(frame)
+  const tiny = { type: 'item' as const, id, value: randomBytes(16).toString('hex') }
+  expect(await compressedItem(tiny, 1)).toBe(tiny)
+  expect(() => readPacket(compressed)).toThrow()
+  await expect(compressedItem({ ...frame, value: 'x'.repeat(FULL_BINARY.packet) }, 32768)).rejects.toThrow('packet limit')
+})
 
 it('requires bounded, unique relay capabilities with JSON fallback', () => {
   expect(binaryRelaySupport(undefined)).toBe(false)

@@ -753,6 +753,8 @@ describe('Session history raw journal', () => {
     { name: 'the partial upper Turn and its predecessor', replies: [9, 39, 99], beforeMessage: 20, firstTurn: 2, steering: false },
     { name: 'an upper window beginning at its user message', replies: [9, 59, 59], beforeMessage: 0, firstTurn: 2, steering: false },
     { name: 'short Turns until 50 messages', replies: [9, 9, 9, 9, 9, 9], beforeMessage: undefined, firstTurn: 2, steering: false },
+    { name: 'short Turns in a 10-message opening', replies: [1, 1, 1, 1, 1, 1], beforeMessage: undefined, firstTurn: 2, steering: false, minMessages: 10 },
+    { name: 'two long Turns in a 10-message opening', replies: [9, 39, 39], beforeMessage: undefined, firstTurn: 2, steering: false, minMessages: 10 },
     { name: 'navigation until 200 messages', replies: [9, 49, 49, 49, 49], beforeMessage: undefined, firstTurn: 2, steering: false, minMessages: 200 },
     { name: 'steering within one Turn', replies: [9, 39, 39], beforeMessage: undefined, firstTurn: 2, steering: true },
     { name: 'exhausted history below both minima', replies: [9], beforeMessage: undefined, firstTurn: 1, steering: false },

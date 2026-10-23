@@ -28,6 +28,7 @@ export interface FullHostConfig {
   readonly credential: string
   readonly requestTimeoutMs: number
   readonly fullFragmentWindow: number
+  readonly fullCompressionMinBytes: number
 }
 
 /** One durable device, with fresh authenticated traffic keys after every reconnect. */
@@ -235,6 +236,7 @@ export class FullMobileHost {
     let fragmentWindow = fullDownloadWindow(undefined, this.config.fullFragmentWindow)
     let relayBinary = false, offeredBinary = false, binaryTransport = false
     let relayPacketMux = false, offeredPacketMux = false, packetMux = false
+    let relayPacketGzip = false, offeredPacketGzip = false, packetGzip = false
     socket.on('message', (bytes, binary) => {
       received = received.then(async () => {
         if (this.socket !== socket || this.disposed || this.saved?.revoked) return
@@ -246,11 +248,13 @@ export class FullMobileHost {
           fragmentWindow = fullDownloadWindow(value.fullFragmentWindow, this.config.fullFragmentWindow)
           relayBinary = binaryRelaySupport(value.envelope)
           relayPacketMux = packetMuxSupport(value.features)
+          relayPacketGzip = relayPacketMux && Array.isArray(value.features) && value.features.includes('packet-gzip-v1')
           this.state = { ...this.state, phase: value.paired === true ? 'paired' : 'waiting', mobileOnline: value.mobileOnline === true,
             ...(value.paired === true ? { pairingUrl: undefined, ticketExpiresAt: null } : {}) }
           if (!value.mobileOnline) {
             this.clearTraffic()
             binaryTransport = offeredBinary = packetMux = offeredPacketMux = false
+            packetGzip = offeredPacketGzip = false
             return
           }
           if (!this.nonce) {
@@ -259,9 +263,10 @@ export class FullMobileHost {
             this.root = new MobileCipher(Buffer.from(saved.secret, 'base64url'), saved.room.roomId)
             offeredBinary = relayBinary
             offeredPacketMux = relayPacketMux
+            offeredPacketGzip = relayBinary && relayPacketMux && relayPacketGzip
             await this.transmit(socket, this.root, { type: 'challenge', nonce: this.nonce, protocol: 2,
               ...(offeredBinary ? { transport: ['binary-v1'] } : {}),
-              ...(offeredPacketMux ? { features: ['packet-mux-v1'] } : {}) })
+              ...(offeredPacketMux ? { features: ['packet-mux-v1', ...(offeredPacketGzip ? ['packet-gzip-v1'] : [])] } : {}) })
           }
           return
         }
@@ -272,11 +277,15 @@ export class FullMobileHost {
             || auth.nonce !== this.nonce
             || typeof auth.clientNonce !== 'string' || !/^[A-Za-z0-9_-]{22}$/.test(auth.clientNonce)) throw new Error('authentication failed')
           if (auth.transport !== undefined && (auth.transport !== 'binary-v1' || !offeredBinary)) throw new Error('invalid transport selection')
-          if (auth.features !== undefined && (!offeredPacketMux || !Array.isArray(auth.features)
-            || auth.features.length !== 1 || auth.features[0] !== 'packet-mux-v1')) throw new Error('invalid feature selection')
+          const selectedFeatures = offeredPacketMux ? ['packet-mux-v1', ...(offeredPacketGzip ? ['packet-gzip-v1'] : [])] : []
+          if (auth.features !== undefined && (!Array.isArray(auth.features)
+            || auth.features.length !== selectedFeatures.length
+            || auth.features.some((feature, index) => feature !== selectedFeatures[index]))) throw new Error('invalid feature selection')
           if (offeredPacketMux !== (auth.features !== undefined)) throw new Error('invalid feature selection')
           binaryTransport = auth.transport === 'binary-v1'
           packetMux = auth.features !== undefined
+          packetGzip = packetMux && offeredPacketGzip
+          if (packetGzip && !binaryTransport) throw new Error('invalid compression selection')
           const raw = binaryTransport
           const traffic = new MobileCipher(Buffer.from(saved.secret, 'base64url'), `${saved.room.roomId}:${this.nonce}:${auth.clientNonce}`)
           this.traffic = traffic
@@ -295,13 +304,13 @@ export class FullMobileHost {
             const delivery = packets.write(frame, lane)
             void delivery.acknowledged.catch((_error: unknown) => { failedTransport() })
             return delivery.written
-          })
+          }, packetGzip ? this.config.fullCompressionMinBytes : 0)
           this.packets = packets
           this.carrier = carrier
           this.attempts = 0
           await this.transmit(socket, traffic, { type: 'ready', protocol: 2,
             ...(binaryTransport ? { transport: 'binary-v1' } : {}),
-            ...(packetMux ? { features: ['packet-mux-v1'] } : {}) })
+            ...(packetMux ? { features: ['packet-mux-v1', ...(packetGzip ? ['packet-gzip-v1'] : [])] } : {}) })
           return
         }
         if (binary !== binaryTransport) throw new Error('unexpected envelope')

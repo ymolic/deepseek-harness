@@ -146,6 +146,22 @@ describe('ModelSelect label slot', () => {
     expect(screen.getByRole('button', { name: '请选择模型' })).toBeTruthy()
     expect(renderSlot).not.toHaveBeenCalled()
   })
+
+  it('keeps the last model visible while refreshing and disables stale choices until validation finishes', () => {
+    const directory = createSnapshotStore(state({ status: 'loading', routable: null }))
+    const select = vi.fn()
+    render(<ModelSelect locked={false} available directory={directory} load={vi.fn()} select={select} t={t} renderSlot={renderLabel} />)
+    const trigger = screen.getByRole('button', { name: '选择模型，当前 DeepSeek-V4-Flash，推理等级 High' })
+    expect(trigger.textContent).toContain('DeepSeek-V4-Flash')
+    fireEvent.click(trigger)
+    fireEvent.click(screen.getByRole('menuitem', { name: /^模型/ }))
+    const option = screen.getByRole('menuitemradio', { name: 'DeepSeek-V4-Flash' }) as HTMLButtonElement
+    expect(option.disabled).toBe(true)
+    fireEvent.click(option)
+    expect(select).not.toHaveBeenCalled()
+    act(() => { directory.set(state()) })
+    expect((screen.getByRole('menuitemradio', { name: 'DeepSeek-V4-Flash' }) as HTMLButtonElement).disabled).toBe(false)
+  })
 })
 
 describe('ModelSelect reasoning effort', () => {

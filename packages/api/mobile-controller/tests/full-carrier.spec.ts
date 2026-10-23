@@ -9,6 +9,29 @@ import type { FullPacketLane } from '../src/full-packets.ts'
 /** The paths under test forward the Peer without reading more than its caller identity. */
 const peer = { principal: { kind: 'owner' } } as PeerScope
 
+it('writes response headers and demanded body without awaiting their peer acknowledgements', async () => {
+  const ctx = new Context()
+  ctx.provide('frontendAssets', { fetch: async () => new Response('synthetic response') })
+  const written: unknown[] = [], acknowledged: unknown[] = []
+  const ending = Promise.withResolvers<undefined>(), release = Promise.withResolvers<undefined>()
+  const carrier = new FullCarrier(ctx, async (frame) => {
+    if (!isRecord(frame)) throw new Error('expected response frame')
+    acknowledged.push(frame.type)
+    ending.resolve(undefined)
+    await release.promise
+  }, peer, true, async (frame) => {
+    if (!isRecord(frame)) throw new Error('expected response frame')
+    written.push(frame.type)
+    if (frame.type === 'response') carrier.accept({ type: 'response-pull', id: 'pipeline-http-0001' })
+  })
+  try {
+    carrier.accept({ type: 'fetch', id: 'pipeline-http-0001', url: '/state.json', method: 'GET', headers: {} })
+    await ending.promise
+    expect(written).toEqual(['response', 'body'])
+    expect(acknowledged).toEqual(['end'])
+  } finally { release.resolve(undefined); await carrier.settled(); await ctx.fiber.dispose() }
+})
+
 it('offers short HTTP response bodies to the control lane', async () => {
   const ctx = new Context()
   ctx.provide('frontendAssets', { fetch: async () => Response.json({ models: ['synthetic-model'] }) })

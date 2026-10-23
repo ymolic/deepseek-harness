@@ -65,11 +65,15 @@ const GROUPS = [{
 }]
 
 /** Boot the plugin over fake faces + a stateful fake host (current moves on selectModel). */
-async function bench(locale: 'zh' | 'en' = 'zh') {
+async function bench(locale: 'zh' | 'en' = 'zh', connected = true) {
   const ctx = new Context()
+  ctx.provide('connection', {
+    generation: { getSnapshot: () => connected ? { id: 1, host: { home: 'fixture' } } : undefined },
+  } as never)
   let defaultSelection: ModelSelection = { provider: 'deepseek-official', model: 'deepseek-v4-flash' }
   let selected = defaultSelection
-  const calls = { models: 0, select: 0 }
+  const calls = { models: 0, select: 0, projections: 0 }
+  let readProjection: (id: SessionId) => Promise<void> = async () => {}
   const projections = new Map<SessionId, SnapshotStore<ModelSelectionProjection | undefined>>()
   // Whether the Host advertises available models for the current route.
   let routable = true
@@ -149,6 +153,10 @@ async function bench(locale: 'zh' | 'en' = 'zh') {
   ctx.provide('sessions', {
     scope: (id: SessionId) => scopes.get(id),
     binding: (id: SessionId) => bindings.get(id),
+    refreshProjections: (id: SessionId) => {
+      calls.projections += 1
+      return readProjection(id)
+    },
     subagentAddress: (id: SessionId) => addressed.has(id)
       ? { parentSessionId: sid('parent'), childSessionId: id, mode: 'continuable' as const }
       : undefined,
@@ -180,6 +188,8 @@ async function bench(locale: 'zh' | 'en' = 'zh') {
   }
   return {
     ctx, fiber, mint, calls, remote, track,
+    connect: () => { connected = true; ctx.emit('connection/reset') },
+    setProjectionRead: (read: typeof readProjection) => { readProjection = read },
     contribution: () => contribution!,
     popup: (): PopupSelectSpec => {
       const ui = contribution!.ui
@@ -363,7 +373,7 @@ describe('ui-model-selection dual entry', () => {
     expect(face.directory.getSnapshot().pending).toBeNull()
   })
 
-  it('hides the effective selection until the reconnected catalog validates it', async () => {
+  it('retains the displayed selection while the reconnected catalog validates it', async () => {
     const b = await bench()
     b.mint('s1')
     const face = b.seat().inject!(sid('s1'))
@@ -372,14 +382,56 @@ describe('ui-model-selection dual entry', () => {
 
     b.ctx.emit('connection/reset')
     expect(face.directory.getSnapshot()).toMatchObject({
-      current: null,
+      current: { provider: 'deepseek-official', model: 'deepseek-v4-pro' },
+      routable: null,
       status: 'loading',
     })
     face.load()
     expect(face.directory.getSnapshot()).toMatchObject({
-      current: null,
+      current: { provider: 'deepseek-official', model: 'deepseek-v4-pro' },
+      routable: null,
       status: 'loading',
     })
+  })
+
+  it('loads once when the first connection becomes ready', async () => {
+    const b = await bench('zh', false)
+    try {
+      expect(b.calls.models).toBe(0)
+      b.connect()
+      b.mint('s1')
+      await b.ctx.modelDirectories.directoryFor(sid('s1')).load()
+      expect(b.calls.models).toBe(1)
+    } finally {
+      await b.fiber.dispose()
+    }
+  })
+
+  it('reads missing model selection without waiting for history and rejects choices during reconnect', async () => {
+    const b = await bench()
+    const pending = Promise.withResolvers<undefined>()
+    try {
+      const handle = b.mint('s1')
+      handle.projection.set(undefined)
+      b.setProjectionRead(async () => {
+        await pending.promise
+        handle.projection.set({ lastUsed: null, next: null })
+      })
+      const directory = b.ctx.modelDirectories.directoryFor(sid('s1'))
+      expect(b.calls.projections).toBe(1)
+      expect(directory.store.getSnapshot()).toMatchObject({ status: 'loading', routable: null })
+      pending.resolve(undefined)
+      await vi.waitFor(() => { expect(directory.store.getSnapshot().status).toBe('ready') })
+      handle.projection.set(undefined)
+      b.connect()
+      const result = await directory.select({ provider: 'deepseek-official', model: 'deepseek-v4-pro' })
+      expect(result).toMatchObject({ ok: false, error: { code: 'gateway/cancelled', message: zh['status.loading'] } })
+      expect(b.calls.select).toBe(0)
+      expect(directory.store.getSnapshot().current).toEqual({ provider: 'deepseek-official', model: 'deepseek-v4-flash' })
+    } finally {
+      pending.resolve(undefined)
+      await b.fiber.dispose()
+    }
   })
 
   it('retains the selected model while refreshing its catalog', async () => {
@@ -534,7 +586,7 @@ describe('ui-model-selection dual entry', () => {
     })).rejects.toThrow(/unavailable for addressed subagent/)
     b.ctx.emit('connection/reset')
     await Promise.resolve()
-    expect(b.calls).toEqual({ models: 2, select: 0 })
+    expect(b.calls).toEqual({ models: 2, select: 0, projections: 0 })
   })
 })
 

@@ -148,6 +148,7 @@ export function ModelSelect(
     ], [reasoning, t])
   const { pending } = state
   const busy = pending !== null
+  const selectionUnavailable = busy || state.routable === null
 
   const reload = (): void => {
     lastActionRef.current = 'load'
@@ -398,6 +399,7 @@ export function ModelSelect(
   }
 
   const choose = (selection: ModelSelection): void => {
+    if (selectionUnavailable) return
     if (state.current?.provider === selection.provider && state.current.model === selection.model) {
       closeAfterSelection()
       return
@@ -406,6 +408,7 @@ export function ModelSelect(
   }
 
   const chooseEffort = (effort: string | undefined): void => {
+    if (selectionUnavailable) return
     if (state.current === null) return
     if (effectiveEffort === effort) {
       closeAfterSelection()
@@ -602,7 +605,7 @@ export function ModelSelect(
                             }}
                             key={model.id}
                             title={model.name}
-                            disabled={busy}
+                            disabled={selectionUnavailable}
                             onClick={() => { choose({ provider: group.id, model: model.id }) }}
                           >
                             <span className={css.optionCopy}>
@@ -644,7 +647,7 @@ export function ModelSelect(
                     aria-checked={effectiveEffort === level.effort}
                     className={clsx(css.option, effectiveEffort === level.effort && css.selected)}
                     key={level.key}
-                    disabled={busy}
+                    disabled={selectionUnavailable}
                     onClick={() => { chooseEffort(level.effort) }}
                   >
                     <span className={css.optionCopy}>

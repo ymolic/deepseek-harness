@@ -13,6 +13,7 @@
  * per-session singleton with no global layer to merge.
  */
 import type {} from '@deepseek-ai/dsh-client-product-analytics/client'
+import type { ConnectionHandle } from '@deepseek-ai/dsh-client-connection/client'
 import { Service } from '@deepseek-ai/cordis'
 import type { Context } from '@deepseek-ai/cordis'
 import type { SessionBinding } from '@deepseek-ai/dsh-api-session-controller/client'
@@ -35,7 +36,7 @@ interface LiveState {
 
 /** The `ctx.modelDirectories` session model-selection service. */
 export class ModelDirectoryResolver extends Service {
-  static inject = ['sessions', 'remote', 'remote.session']
+  static inject = ['connection', 'sessions', 'remote', 'remote.session', 'locale']
 
   private readonly live: LiveState = { directories: new WeakMapWithValues() }
   private readonly catalog: ModelCatalogDirectory
@@ -46,7 +47,10 @@ export class ModelDirectoryResolver extends Service {
   constructor(ctx: Context) {
     super(ctx, 'modelDirectories')
     this.catalog = new ModelCatalogDirectory(ctx)
-    void this.catalog.load().catch(() => { /* selectors expose the shared error */ })
+    const connection = ctx.get('connection') as ConnectionHandle
+    if (connection.generation.getSnapshot() !== undefined) {
+      void this.catalog.load().catch(() => { /* selectors expose the shared error */ })
+    }
     ctx.on('connection/reset', () => {
       this.catalog.resetGeneration()
       for (const directory of this.live.directories.values) directory.resetConnected()
@@ -72,6 +76,7 @@ export class ModelDirectoryResolver extends Service {
     if (binding === undefined) throw new Error(`ui-model-selection: session "${String(sessionId)}" resolved no binding`)
     const existing = live.directories.get(binding)
     if (existing !== undefined) return existing
+    const t = this.ctx.locale.bind('model')
     const directory = new ModelDirectory(
       this.ctx.remote.session,
       sessionId,
@@ -79,6 +84,8 @@ export class ModelDirectoryResolver extends Service {
       this.catalog,
       binding.session.projections.faceOf('modelSelection'),
       () => binding.session.getSnapshot().blank,
+      () => sessions.refreshProjections(sessionId),
+      () => t('status.loading'),
       (name, attributes) => this.ctx.get('productAnalytics')?.track(name, attributes),
     )
     live.directories.set(binding, directory)

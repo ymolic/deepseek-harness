@@ -237,6 +237,8 @@ export interface Config {
   readonly requestTimeoutMs: number
   /** Maximum unacknowledged full-client download fragments; 1-32, independent of phone uploads. */
   readonly fullFragmentWindow: number
+  /** Minimum binary stream-item packet size to gzip, from 1 KiB through 16 MiB; requires negotiated support. */
+  readonly fullCompressionMinBytes: number
   /** Periodic interval in milliseconds for coalescing changed text into replacement snapshots. */
   readonly flushMs: number
   /** Maximum UTF-8 bytes of recent conversation text retained for the phone. */

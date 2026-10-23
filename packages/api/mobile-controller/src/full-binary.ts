@@ -1,4 +1,8 @@
 /** Binary-v1 framing retains the existing fragment, packet and socket budgets. */
+import { gzip } from 'node:zlib'
+import { promisify } from 'node:util'
+
+const compress = promisify(gzip)
 
 /** Fixed binary-v1 byte limits; encoded bodies remain demand-driven. */
 export const FULL_BINARY = { chunk: 12000, packet: 16 * 1024 * 1024, plain: 32768, header: 36, tag: 16 } as const
@@ -39,7 +43,15 @@ export function binaryAAD(context: string, direction: string, header: Uint8Array
 /** @param value - control or raw body frame. @returns one bounded application packet without base64 body expansion. */
 export function packetBytes(value: object): Buffer {
   let bytes: Buffer
-  if ('type' in value && (value.type === 'body' || value.type === 'request-body')) {
+  if ('type' in value && value.type === 'compressed-item') {
+    if (Object.keys(value).length !== 4 || !('id' in value) || typeof value.id !== 'string' || !operationId.test(value.id)
+      || !('size' in value) || typeof value.size !== 'number' || !Number.isSafeInteger(value.size)
+      || value.size < 2 || value.size > FULL_BINARY.packet
+      || !('data' in value) || !(value.data instanceof Uint8Array) || value.data.length < 1) throw new Error('invalid compressed item')
+    const header = Buffer.alloc(6 + value.id.length)
+    header[0] = 4; header[1] = value.id.length; header.write(value.id, 2); header.writeUInt32BE(value.size, 2 + value.id.length)
+    bytes = Buffer.concat([header, value.data])
+  } else if ('type' in value && (value.type === 'body' || value.type === 'request-body')) {
     const max = value.type === 'body' ? 192 * 1024 : 48 * 1024
     if (Object.keys(value).length !== 3 || !('id' in value) || typeof value.id !== 'string' || !operationId.test(value.id)
       || !('data' in value) || !(value.data instanceof Uint8Array) || value.data.length < 1 || value.data.length > max) throw new Error('invalid binary body')
@@ -47,6 +59,21 @@ export function packetBytes(value: object): Buffer {
   } else bytes = Buffer.concat([Buffer.from([1]), Buffer.from(JSON.stringify(value))])
   if (bytes.length > FULL_BINARY.packet) throw new Error('packet limit')
   return bytes
+}
+
+/**
+ * Compress a stream item before encryption, retaining its original encoding when gzip does not save bytes.
+ * @param frame - complete stream item with its operation id.
+ * @param minimumBytes - validated minimum packet size; zero disables compression.
+ * @returns the original item or an internal binary-v1 compressed packet representation.
+ */
+export async function compressedItem(frame: { type: 'item'; id: string; value: unknown }, minimumBytes: number): Promise<object> {
+  if (minimumBytes === 0) return frame
+  const bytes = packetBytes(frame)
+  if (bytes.length < minimumBytes) return frame
+  const data = await compress(bytes)
+  if (data.length + 6 + frame.id.length >= bytes.length) return frame
+  return { type: 'compressed-item', id: frame.id, size: bytes.length, data }
 }
 
 /** @param bytes - reassembled authenticated packet. @returns decoded control or raw body; rejects unsupported tags, ids and sizes. */

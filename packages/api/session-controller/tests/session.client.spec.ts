@@ -182,7 +182,7 @@ describe('live event path', () => {
 })
 
 describe('paging', () => {
-  it('prepends an older page and keeps seq continuity', async ({ mock, start }) => {
+  it('opens a smaller tail window and prepends a full older page with seq continuity', async ({ mock, start }) => {
     const older = plainTurn(SessionSeq(0), 0, '旧问', '旧答')
     const newer = plainTurn(SessionSeq(6), 1, '新问', '新答')
     const session = await sessionBench(mock, start, SID)
@@ -191,7 +191,7 @@ describe('paging', () => {
     await session.open()
     await session.loadOlder()
     const snapshot = session.getSnapshot()
-    expect(mock.log.requests(FOLLOW)).toMatchObject([{ maxMessages: 500, turnWindow: { minMessages: 50, minTurns: 2 } }])
+    expect(mock.log.requests(FOLLOW)).toMatchObject([{ maxMessages: 500, turnWindow: { minMessages: 10, minTurns: 2 } }])
     expect(mock.log.requests(PAGE)).toEqual([
       { address: ADDRESS, throughSeq: 11, beforeSeq: 6, maxMessages: 500, turnWindow: { minMessages: 50, minTurns: 2 } },
     ])
@@ -484,7 +484,7 @@ describe('prompt and cancel errors', () => {
     expect(steered).toEqual({ ok: true, value: { accepted: true } })
     expect(cancelled).toEqual({ ok: true, value: { accepted: true } })
     expect(mock.log.requests(FOLLOW)).toEqual([
-      { address: { kind: 'subagent', ...CHILD }, assistantStream: true, maxMessages: 500, turnWindow: { minMessages: 50, minTurns: 2 } },
+      { address: { kind: 'subagent', ...CHILD }, assistantStream: true, maxMessages: 500, turnWindow: { minMessages: 10, minTurns: 2 } },
     ])
     expect(mock.log.requests(PAGE)).toEqual([])
     // The prompt mode crosses the wire as the request's delivery.
@@ -593,7 +593,7 @@ describe('prompt and cancel errors', () => {
     expect(mock.log.requests('subagents/prompt')).toMatchObject([CHILD])
     expect(mock.log.calls('subagents/interruptByParent').map(call => call.args)).toEqual([[SID, PARENT, 'continuable']])
     expect(mock.log.requests(FOLLOW)).toEqual([
-      { address: { kind: 'subagent', ...CHILD, mode: 'one-shot' }, assistantStream: true, maxMessages: 500, turnWindow: { minMessages: 50, minTurns: 2 } },
+      { address: { kind: 'subagent', ...CHILD, mode: 'one-shot' }, assistantStream: true, maxMessages: 500, turnWindow: { minMessages: 10, minTurns: 2 } },
     ])
     expect(mock.log.requests(PAGE)).toEqual([])
     expect(mock.log.requests('session/cancel')).toEqual([])
@@ -974,6 +974,10 @@ describe('resync', () => {
 
     const syncing = session.resync()
     await vi.waitFor(() => { expect(mock.log.requests(FOLLOW)).toHaveLength(2) })
+    expect(mock.log.requests(FOLLOW)).toMatchObject([
+      { maxMessages: 500, turnWindow: { minMessages: 10, minTurns: 2 } },
+      { maxMessages: 500, turnWindow: { minMessages: 10, minTurns: 2 } },
+    ])
     expect(session.eventSource.getSnapshot()).toBe(oldWindow)
     expect(publications).toEqual([])
 

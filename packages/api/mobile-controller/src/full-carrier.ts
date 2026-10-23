@@ -7,6 +7,7 @@ import type {} from '@deepseek-ai/dsh-client-connection'
 import type { PeerScope } from '@deepseek-ai/dsh-typert-protocol'
 import { z } from 'zod'
 import type { FullPacketLane } from './full-packets.ts'
+import { compressedItem } from './full-binary.ts'
 
 const BODY_CHUNK = 192 * 1024
 const id = z.string().regex(/^[A-Za-z0-9_-]{16,64}$/)
@@ -135,10 +136,12 @@ export class FullCarrier {
    * @param peer - caller identity dispatched requests speak for; the paired device's operator Peer.
    * @param binary - negotiated raw body encoding; omitted or false retains legacy base64.
    * @param writeStream - ordered, window-bounded local writer owning later acknowledgement failures; defaults to acknowledged writes.
+   * @param compressionMinBytes - negotiated binary packet compression threshold; zero disables compression.
    */
   constructor(private readonly ctx: Context, private readonly send: (frame: object, lane?: FullPacketLane) => Promise<void>,
     private readonly peer: PeerScope, private readonly binary = false,
-    private readonly writeStream: (frame: object, lane?: FullPacketLane) => Promise<void> = send) {}
+    private readonly writeStream: (frame: object, lane?: FullPacketLane) => Promise<void> = send,
+    private readonly compressionMinBytes = 0) {}
 
   /** @param value - reassembled encrypted client frame. */
   accept(value: unknown): void {
@@ -202,7 +205,7 @@ export class FullCarrier {
           const bodyStream = compression === undefined || response.body === null ? response.body : compressedAsset(response.body)
           if (compression !== undefined) delete responseHeaders['content-length']
           responseHeaders['cache-control'] = 'no-store'
-          await this.send({ type: 'response', id: frame.id, status: response.status, headers: responseHeaders,
+          await this.writeStream({ type: 'response', id: frame.id, status: response.status, headers: responseHeaders,
             ...(compression === undefined ? {} : { compression }) })
           responseStarted = true
           const reader = bodyStream?.getReader()
@@ -216,7 +219,7 @@ export class FullCarrier {
                 for (let offset = 0; offset < next.value.length; offset += BODY_CHUNK) {
                   await demand.next()
                   operation.abort.signal.throwIfAborted()
-                  await this.send({ type: 'body', id: frame.id,
+                  await this.writeStream({ type: 'body', id: frame.id,
                     data: this.binary ? next.value.subarray(offset, offset + BODY_CHUNK)
                       : Buffer.from(next.value.subarray(offset, offset + BODY_CHUNK)).toString('base64url') },
                   next.value.length <= 16 * 1024 ? 'control' : 'bulk')
@@ -231,7 +234,9 @@ export class FullCarrier {
           )
           for await (const value of stream) {
             operation.abort.signal.throwIfAborted()
-            await this.writeStream({ type: 'item', id: frame.id, value }, 'realtime')
+            const item = await compressedItem({ type: 'item', id: frame.id, value }, this.compressionMinBytes)
+            operation.abort.signal.throwIfAborted()
+            await this.writeStream(item, 'realtime')
           }
           operation.abort.signal.throwIfAborted()
           await this.send({ type: 'finish', id: frame.id }, 'realtime')

@@ -406,7 +406,7 @@ it.runIf(relayRoot).each([
     relay = await createRelay({ adminToken: randomBytes(32).toString('base64url'), desktopToken,
       origin: 'http://127.0.0.1:0', stateFile: join(root, 'devices.json'), staticDirectory })
     const overlay = join(root, 'mobile.yml')
-    await writeFile(overlay, `- id: mobile-controller\n  config:\n    enabled: true\n    relayOrigin: ${relay.origin}\n`)
+    await writeFile(overlay, `- id: mobile-controller\n  config:\n    enabled: true\n    relayOrigin: ${relay.origin}\n    fullCompressionMinBytes: 1024\n`)
     const replayFixture = await selectedSessionFixture(fileURLToPath(new URL('../../../snapshots/web/deepseek-messages-chat/session.v3.jsonl', import.meta.url)), false)
     scaffold = await launchWebScaffold({ extraOverlayPath: overlay, replayFixture, compareReplaySession: false, paceMs: 5,
       replayProviders: [{ id: 'deepseek-messages', name: 'DeepSeek', models: [{ id: 'deepseek-v4-flash', name: 'DeepSeek-V4-Flash',

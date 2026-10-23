@@ -10,6 +10,7 @@ import type {
 } from '@deepseek-ai/dsh-api-session-controller/types'
 import type { SessionId } from '@deepseek-ai/dsh-api-remotes/client'
 import type { RemoteResult, TypertClientRemote } from '@deepseek-ai/dsh-typert-protocol'
+import { RemoteError } from '@deepseek-ai/dsh-typert-protocol'
 import type { ObservableSnapshot, SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { ModelCatalogDirectory } from './catalog.ts'
@@ -54,6 +55,8 @@ export class ModelDirectory {
    * @param catalog - Host-generation catalog shared by every Session.
    * @param projected - durable model selection projected from Session history.
    * @param isBlank - whether this Session has no first message yet.
+   * @param refreshProjection - shared read-only projection loader, independent of history delivery.
+   * @param refreshingMessage - localized explanation when refreshed inputs are not ready.
    * @param track - desktop-only callback after a successful user selection.
    */
   constructor(
@@ -63,11 +66,14 @@ export class ModelDirectory {
     private readonly catalog: ModelCatalogDirectory,
     private readonly projected: ObservableSnapshot<unknown>,
     private readonly isBlank: () => boolean,
+    private readonly refreshProjection: () => Promise<void>,
+    private readonly refreshingMessage: () => string,
     private readonly track?: TrackProductEvent,
   ) {
     this.unsubscribeCatalog = catalog.store.subscribe(() => { this.syncInputs() })
     this.unsubscribeSelection = projected.subscribe(() => { this.syncInputs() })
     this.syncInputs()
+    this.loadProjection()
   }
 
   /**
@@ -76,6 +82,7 @@ export class ModelDirectory {
    */
   async load(): Promise<ModelDirectoryState> {
     this.assertAvailable()
+    this.loadProjection()
     await this.catalog.load()
     this.syncInputs()
     return this.store.getSnapshot()
@@ -90,6 +97,9 @@ export class ModelDirectory {
    */
   async select(selection: ModelSelection): Promise<RemoteResult<void>> {
     this.assertAvailable()
+    if (this.store.getSnapshot().routable === null) {
+      return { ok: false, error: new RemoteError('gateway/cancelled', this.refreshingMessage(), {}) }
+    }
     const previous = this.store.getSnapshot().current
     const previousEffort = previous?.reasoningEffort ?? (previous === null ? undefined : this.catalog.reasoningFor(previous)?.defaultEffort)
     const nextEffort = selection.reasoningEffort ?? this.catalog.reasoningFor(selection)?.defaultEffort
@@ -139,6 +149,7 @@ export class ModelDirectory {
       state.error = null
     })
     this.syncInputs()
+    this.loadProjection()
   }
 
   /** Scope teardown: late settlements lose write access to the store. */
@@ -152,6 +163,18 @@ export class ModelDirectory {
     if (!this.available()) {
       throw new Error('model selection is unavailable for addressed subagent sessions')
     }
+  }
+
+  private loadProjection(): void {
+    if (!this.available() || this.projected.getSnapshot() !== undefined) return
+    const generation = this.generation
+    void this.refreshProjection().catch((error: unknown) => {
+      if (this.disposed || generation !== this.generation) return
+      this.store.update((state) => {
+        state.status = 'error'
+        state.error = error instanceof Error ? error.message : String(error)
+      })
+    })
   }
 
   private syncInputs(): void {
