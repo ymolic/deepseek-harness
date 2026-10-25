@@ -160,7 +160,7 @@ describe('ModelSelect label slot', () => {
     fireEvent.click(option)
     expect(select).not.toHaveBeenCalled()
     act(() => { directory.set(state()) })
-    expect(screen.getByRole('menuitemradio', { name: 'DeepSeek-V4-Flash' }).disabled).toBe(false)
+    expect(screen.getByRole<HTMLButtonElement>('menuitemradio', { name: 'DeepSeek-V4-Flash' }).disabled).toBe(false)
   })
 })
 
