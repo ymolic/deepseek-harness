@@ -26,7 +26,7 @@ import { createRoom, revokeRoom, connectDevice, closeDevice, type RelayRoom } fr
 import type {
   MobileChannelId, MobileDesktopState, MobileReply, MobileRequestId, MobileReceiptStatus,
   MobileStartRequest, MobileStartResult, MobileWorkspaceSummary, MobileSessionSummary,
-  MobileModelItem, MobileSessionStartRequest,
+  MobileModelItem, MobileSessionStartRequest, MobilePairingTarget,
 } from './types.ts'
 
 export type * from './types.ts'
@@ -106,6 +106,7 @@ export class MobileController extends TypertRemoteService {
   private disposed = false
   private state: MobileDesktopState
   private readonly full: FullMobileHost
+  private readonly app: FullMobileHost
 
   /**
    * @param ctx - Host services that already own Agents, permissions, and persistence.
@@ -125,6 +126,7 @@ export class MobileController extends TypertRemoteService {
     this.state = { phase: this.config.enabled ? 'stopped' : 'disabled', sessionId: null, title: '',
       expiresAt: null, ticketExpiresAt: null, relayRevoked: true }
     this.full = new FullMobileHost(ctx, this.config)
+    this.app = new FullMobileHost(ctx, this.config, 'app')
     ctx.on('agent/status', ({ agent }) => { if (this.grant?.agent === agent) this.grant.dirty = true }, { global: true })
     ctx.on('agent/disposed', ({ agent }) => { if (this.grant?.agent === agent) this.grant.dirty = true }, { global: true })
 
@@ -155,10 +157,12 @@ export class MobileController extends TypertRemoteService {
 
   /**
    * Read enrollment and connection state for the authenticated operator.
+   * @param target - independent device slot; omission reads browser or its legacy Session grant.
    * @returns state with transient QR material only while enrollment is pending; never log it.
    */
   @Remote
-  status(): MobileDesktopState {
+  status(target?: MobilePairingTarget): MobileDesktopState {
+    if (this.resolveTarget(target) === 'app') return this.app.status()
     if (this.full.active()) return this.full.status()
     if (this.grant && this.valid(this.grant)) {
       return { ...this.state, pairingUrl: this.grant.pairingUrl }
@@ -167,17 +171,20 @@ export class MobileController extends TypertRemoteService {
   }
 
   /**
-   * Authorize the full instance, or a legacy Session grant when no full-device trust exists.
-   * @param request - explicit instance consent or legacy Session selection and tool acknowledgement.
+   * Authorize one independent full-instance device, or a legacy browser Session grant when browser trust is absent.
+   * @param request - instance consent with optional target (defaults to browser), or legacy Session selection with tool acknowledgement.
    * @returns a short-lived QR URL; keep it only in the desktop's transient view state.
    * @throws when disabled, already starting, revoked state is uncertain, or the selected Session cannot be used.
    */
   @Remote
   start(request: MobileStartRequest): Promise<MobileStartResult> {
+    const target = this.resolveStartTarget(request)
     if ('scope' in request) {
+      if (target === 'app') return this.app.start()
       this.starting?.abort()
       return this.full.start(this.end('stopped'))
     }
+    if (target !== 'browser') throw new RemoteError('gateway/bad-request', 'Legacy mobile authorization requires browser target.', {})
     if (!this.config.enabled || this.disposed || this.starting) {
       throw new RemoteError('gateway/bad-request', 'Mobile authorization is unavailable.', {})
     }
@@ -193,11 +200,13 @@ export class MobileController extends TypertRemoteService {
   }
 
   /**
-   * Stop local admission synchronously, then revoke the relay room.
+   * Stop admission for one device slot, then revoke only its relay room.
+   * @param target - independent device slot; omission stops browser or its legacy Session grant, never App.
    * @returns state distinguishing confirmed server revocation from an unknown network outcome.
    */
   @Remote
-  async stop(): Promise<MobileDesktopState> {
+  async stop(target?: MobilePairingTarget): Promise<MobileDesktopState> {
+    if (this.resolveTarget(target) === 'app') return this.app.stop()
     if (this.full.active()) return this.full.stop()
     await this.full.initialized()
     if (this.full.active()) return this.full.stop()
@@ -206,6 +215,23 @@ export class MobileController extends TypertRemoteService {
     await this.end('stopped')
     await starting?.catch((_error: unknown) => undefined)
     return this.state
+  }
+
+  private resolveStartTarget(request: unknown): MobilePairingTarget {
+    if (!isRecord(request) || request.acknowledgeTools !== true) {
+      throw new RemoteError('gateway/bad-request', 'Explicit mobile authorization is required.', {})
+    }
+    const target = this.resolveTarget(request.target)
+    if ('scope' in request && request.scope !== 'instance') {
+      throw new RemoteError('gateway/bad-request', 'Invalid mobile authorization scope.', {})
+    }
+    return target
+  }
+
+  private resolveTarget(target: unknown): MobilePairingTarget {
+    if (target === undefined) return 'browser'
+    if (target === 'browser' || target === 'app') return target
+    throw new RemoteError('gateway/bad-request', 'Invalid mobile pairing target.', {})
   }
 
   private async begin(request: MobileSessionStartRequest, abort: AbortController): Promise<MobileStartResult> {

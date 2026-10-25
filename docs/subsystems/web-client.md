@@ -29,7 +29,7 @@ The Web boot kernel creates the module system, prefetches `immediately` entries,
 
 [Phone control](../../packages/api/mobile-controller/README.md) pairs the existing Web client through an encrypted outbound carrier after explicit instance-wide consent. The Host dispatches registered application APIs, Gateway streams and assets, not arbitrary network destinations; Session execution permissions remain unchanged. [The desktop menu](../../packages/client/ui-mobile-remote/README.md) owns transient QR presentation and distinguishes closing the dialog from forgetting a trusted device. A bounded Session text executor remains for legacy compatibility.
 
-`MobileStartRequest` carries explicit instance consent or a legacy Session selection. `MobileStartResult` returns transient pairing material with `MobileDesktopState`; while enrollment is pending, desktop status may also contain the QR URL and must not be logged. Paired state reports connection availability and relay revocation without continuing to expose the QR. The [type declarations](../../packages/api/mobile-controller/src/types.ts) own these fields.
+`MobilePairingTarget` is `'browser' | 'app'`. `MobileStartRequest` carries explicit instance consent with optional `target`, or a legacy browser Session selection. Omitting `target` preserves browser behavior; unknown targets fail closed. `mobile.status(target?)` and `mobile.stop(target?)` select only that slot. Each target has independent durable trust and transport, so both may remain online without replacing each other. `MobileStartResult` returns transient pairing material with `MobileDesktopState`; while enrollment is pending, desktop status may also contain the QR URL and must not be logged. Paired state reports connection availability and relay revocation without continuing to expose the QR. The [type declarations](../../packages/api/mobile-controller/src/types.ts) own these fields.
 
 Host business services annotate callable methods with Typert Remote decorators. Host generation emits strict descriptors, runtime codecs, declaration merges, and source maps. The Client-side `api-remotes` assembly selects those generated contributions and mounts concrete methods under `ctx.remote.<namespace>` and Session-scoped `agentCtx.remote.<namespace>`. Feature packages depend on the generated service face, not the Gateway implementation or a Host package's runtime entry.
 
@@ -120,23 +120,25 @@ Authenticated operator controls for enrollment and manual device revocation.
 ```ts cordis-catalog
 /**
  * Read enrollment and connection state for the authenticated operator.
+ * @param target - independent device slot; omission reads browser or its legacy Session grant.
  * @returns state with transient QR material only while enrollment is pending; never log it.
  */
-@Remote status(): MobileDesktopState
+@Remote status(target?: MobilePairingTarget): MobileDesktopState
 
 /**
- * Authorize the full instance, or a legacy Session grant when no full-device trust exists.
- * @param request - explicit instance consent or legacy Session selection and tool acknowledgement.
+ * Authorize one independent full-instance device, or a legacy browser Session grant when browser trust is absent.
+ * @param request - instance consent with optional target (defaults to browser), or legacy Session selection with tool acknowledgement.
  * @returns a short-lived QR URL; keep it only in the desktop's transient view state.
  * @throws when disabled, already starting, revoked state is uncertain, or the selected Session cannot be used.
  */
 @Remote start(request: MobileStartRequest): Promise<MobileStartResult>
 
 /**
- * Stop local admission synchronously, then revoke the relay room.
+ * Stop admission for one device slot, then revoke only its relay room.
+ * @param target - independent device slot; omission stops browser or its legacy Session grant, never App.
  * @returns state distinguishing confirmed server revocation from an unknown network outcome.
  */
-@Remote async stop(): Promise<MobileDesktopState>
+@Remote async stop(target?: MobilePairingTarget): Promise<MobileDesktopState>
 ```
 
 Source: [`packages/api/mobile-controller/src/index.ts`](../../packages/api/mobile-controller/src/index.ts)

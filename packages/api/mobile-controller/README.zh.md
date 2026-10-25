@@ -25,7 +25,9 @@ kind: "package-reference"
 
 Web 应用 bundle 包含此控制器，默认禁用。在桌面 profile 的 `cordis.patch.yml` 中，将 `mobile-controller` 行的 `config.enabled` 设为 `true`，并将 `config.relayOrigin` 设为可信兼容中继的精确 HTTPS origin。通过已有凭据存储单独配置 `DSH_MOBILE_DESKTOP_TOKEN`；不要使用中继管理密钥。[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-api-mobile-controller) 维护所有配置字段。隔离测试可使用 loopback HTTP。
 
-已认证 Web 或 Desktop 客户端调用 `mobile.start({ scope: 'instance', acknowledgeTools: true })`，无需选择 Session。授权授予包括配置和工具审批在内的完整操作者访问，不改变任何 Session 的权限。返回的私密 URL 仅在本地渲染为二维码，不得记录或写入诊断信息。配对后 `mobile.status` 隐藏配对材料。`mobile.stop` 先拒绝本机访问并持久提交撤销标记，再请求中继删除。替换授权要求确认删除；未确认结果持续可见并可重试。
+已认证 Web 或 Desktop 客户端调用 `mobile.start({ scope: 'instance', acknowledgeTools: true, target })`，无需选择 Session。`target` 为 `browser` 或 `app`；省略时保留浏览器行为。`mobile.status(target?)` 和 `mobile.stop(target?)` 选择同一独立授权槽。未知 target 一律拒绝，不回落到浏览器。两端可同时在线；刷新或忘记一端不改变另一端授权。授权授予包括配置和工具审批在内的完整操作者访问，不改变任何 Session 的权限。
+
+返回的私密 URL 仅在本地渲染为二维码，不得记录或写入诊断信息。浏览器二维码仍为 HTTPS；App 二维码载荷使用 `dshapp://host[:port]/#room=…&ticket=…&key=…&mode=full`，保留配置的中继主机与端口。该载荷供 App 原生扫码，不注册系统 deep link；扫码器校验后打开对应 HTTPS 配对页面。配对后 `mobile.status` 隐藏配对材料。`mobile.stop` 先拒绝该槽的本机访问并持久提交撤销标记，再仅请求删除该槽的中继房间。替换授权要求确认删除；未确认结果持续可见并可重试。
 
 <a id="understand-the-implementation"></a>
 ## 理解实现
@@ -33,13 +35,13 @@ Web 应用 bundle 包含此控制器，默认禁用。在桌面 profile 的 `cor
 <details>
 <summary>实现细节 — 点击展开</summary>
 
-完整客户端中继通过 `POST /desktop/devices` 使用独立配置凭据创建持久设备房间。房间专属凭据认证出站 `/ws/device` 和房间撤销。状态声明协议 2 与 `full-client-e2ee`，socket 子协议仍为 `dsh-relay.v1`。配对票据 120 秒过期，已配对设备权限没有授权 TTL。Host 在凭据服务中保存带版本的设备记录；中继仅持久化认证摘要和房间元数据。
+完整客户端中继通过 `POST /desktop/devices` 使用独立配置凭据创建持久设备房间。每个授权槽拥有自己的 `FullMobileHost`、房间、秘密、Peer 和出站 socket。浏览器信任继续使用凭据 key `mobile-controller/trusted-device`，不作修改；App 信任使用 `mobile-controller/trusted-app-device`，不复制或迁移浏览器记录。房间专属凭据认证出站 `/ws/device` 和房间撤销。状态声明协议 2 与 `full-client-e2ee`，socket 子协议仍为 `dsh-relay.v1`。配对票据 120 秒过期，已配对设备权限没有授权 TTL。Host 在凭据服务中保存各自带版本的设备记录；中继仅持久化认证摘要和房间元数据。
 
 二维码 fragment 携带房间、票据和随机秘密。分方向 HKDF 密钥与 AES-256-GCM 认证加密帧。每次重连交换新的已认证挑战，并在接受应用操作前派生新流量密钥。中继可见时间和大小，但不能读取应用内容。分发的手机 JavaScript 和两端设备仍须可信；载荷加密无法防护恶意分发者或已失陷端点。
 
-已认证传输仅分派已注册 `/api/` handler、Client 插件 bundle、已配置前端资产和 Gateway 逻辑流，不代理调用者指定的网络目标。手机 service worker 在受控文档内提供原有应用，不持有密钥或私密响应缓存。带确认的分片约束加密帧，上传和下载按背压流式处理，断线取消活动流而不重放已提交变更。JavaScript、CSS 和 SVG 资产在加密前以 gzip 流式压缩；私密 HTML 与 API 响应不压缩。压缩下载在加密分片前合并为最多 192 KiB 的有界块。
+已认证传输仅分派已注册 `/api/` handler、Client 插件 bundle、已配置前端资产和 Gateway 逻辑流。手机配对控制仅限桌面：传输拒绝通过 Fetch 和逻辑流调用 `mobile` API 命名空间，因此手机不能查看或修改任一授权槽的配对。不代理调用者指定的网络目标。手机 service worker 在受控文档内提供原有应用，不持有密钥或私密响应缓存。带确认的分片约束加密帧，上传和下载按背压流式处理，断线取消活动流而不重放已提交变更。JavaScript、CSS 和 SVG 资产在加密前以 gzip 流式压缩；私密 HTML 与 API 响应不压缩。压缩下载在加密分片前合并为最多 192 KiB 的有界块。
 
-关闭二维码弹窗仅隐藏界面。Host 卸载只关闭连接，不撤销设备信任。重连监督使用有上限的指数退避；服务不可用时持续显示离线。旧 Session-start 请求为已有文本客户端保留，继续使用短期投影与回执协议，不实现完整客户端生命周期。
+关闭二维码弹窗仅隐藏界面。Host 卸载只关闭两份连接，不撤销设备信任。每个授权槽独立恢复与重连，使用有上限的指数退避；服务不可用时持续显示离线。旧 Session-start 请求仅属于浏览器，继续使用短期投影与回执协议，不实现完整客户端生命周期。App 操作不停止或替换旧浏览器授权。
 
 所有并发下载包共用有界窗口；`fullFragmentWindow` 配置未确认分片数，范围 1-32，默认 32。Host 采用配置与中继声明两者中较小的限制；未声明窗口的旧中继仍限八分片。手机上传保留独立的八分片窗口。兼容中继允许包含加密封装在内最多 1 MiB 的完整客户端 socket 缓冲，超限即断开。
 

@@ -10,7 +10,7 @@ let browser: Browser
 
 beforeAll(async () => {
   scaffold = await launchWebScaffold()
-  browser = await chromium.launch()
+  browser = await chromium.launch(process.env.BROWSER_EXECUTABLE ? { executablePath: process.env.BROWSER_EXECUTABLE } : { channel: 'chrome' })
 })
 
 afterAll(async () => {
@@ -19,6 +19,31 @@ afterAll(async () => {
 })
 
 describe('navigation without a selected Session', () => {
+  it.each([320, 390])('%ipx touch view keeps only the global navigation before workspace selection', async (width) => {
+    const page = await browser.newPage({ viewport: { width, height: 844 }, locale: 'en-US', isMobile: true, hasTouch: true })
+    try {
+      const tripwire = watchConsole(page)
+      await page.goto(scaffold.authenticatedUrl, { waitUntil: 'load' })
+      await page.getByRole('textbox', { name: 'Choose workspace', exact: true }).waitFor()
+      const header = page.locator('[data-slot="conversation.header"] > header')
+      expect(await header.evaluate(element => element.getBoundingClientRect().height)).toBe(0)
+      const leading = page.locator('[data-shell-leading]')
+      expect(await leading.evaluate(element => element.getBoundingClientRect().height)).toBe(44)
+      const open = leading.getByRole('button', { name: 'Open sidebar', exact: true })
+      expect(await open.evaluate((element) => {
+        const box = element.getBoundingClientRect()
+        return box.width >= 44 && box.height >= 44
+      })).toBe(true)
+      await open.click()
+      await page.getByRole('button', { name: 'Collapse sidebar', exact: true }).waitFor({ state: 'visible' })
+      expect(await header.evaluate(element => element.getBoundingClientRect().height)).toBe(0)
+      expect(tripwire.pageErrors).toEqual([])
+      expect(tripwire.warnings).toEqual([])
+    } finally {
+      await page.close()
+    }
+  })
+
   it.each(['web', 'win32', 'linux', 'darwin'] as const)('%s preserves its empty-header geometry and sidebar access', async (platform) => {
     const page = await newEnglishPage(browser)
     try {

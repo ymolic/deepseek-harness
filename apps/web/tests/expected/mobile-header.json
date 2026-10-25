@@ -1,0 +1,7 @@
+{
+  "title": "A long phone session title that must truncate rather than cover header actions",
+  "tabs": [
+    "对话",
+    "轨迹"
+  ]
+}

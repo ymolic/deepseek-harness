@@ -1,5 +1,5 @@
 ---
-description: "Web and Desktop pairing controls for full-instance phone consent, private QR display, persistent device status and explicit revocation."
+description: "Web and Desktop controls for independent browser and App pairing, full-instance consent, private QR display and device revocation."
 kind: "package-reference"
 ---
 
@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-More → Phone remote control pairs a trusted phone with the whole DSH instance, without selecting a Session. The locally generated QR disappears after pairing. The dialog shows connection status and lets the operator forget the device; closing it does not revoke trust.
+More → Phone remote control provides separate Browser and DSH App pairing cards, side by side on wide screens and stacked on narrow screens. Each grants whole-instance access without selecting a Session, with independent consent, QR code, connection status, refresh and forget actions. Pairing or replacing one client does not disconnect the other. Closing the dialog does not revoke trust.
 
 On a supported phone connection, the navigation status opens Remote connection. Reconnect retains the mounted chat and unsent draft. Forget this device requires confirmation and a new scan afterward; unconfirmed revocation stays visible with a retry action.
 
@@ -25,9 +25,9 @@ On a supported phone connection, the navigation status opens Remote connection. 
 <a id="use-this-package"></a>
 ## Use this package
 
-The Web application bundle includes the plugin for both Web and Desktop. Configure the [Host controller](../../api/mobile-controller/README.md), open More → Phone remote control, and acknowledge full-instance operator access. Session execution permissions remain unchanged. Scan the QR code with the phone camera and open the trusted phone page. A missing relay configuration appears in the dialog.
+The Web application bundle includes the plugin for both Web and Desktop. Configure the [Host controller](../../api/mobile-controller/README.md), open More → Phone remote control, and acknowledge full-instance access in the intended card. Session execution permissions remain unchanged. For Browser, scan with the system Camera and open Safari. For DSH App, open the App's Scan to connect screen and use its in-app scanner, not the system Camera or Safari. A missing relay configuration appears in each card.
 
-Close hides the dialog while device trust continues across restarts. Before pairing, Refresh QR code revokes the preceding enrollment before creating a new one. After pairing, the dialog removes the QR and refresh action. Forget device cancels enrollment and stops access. Unconfirmed server removal remains visible for retry. Enrollment expiry does not expire an already paired device.
+Close hides the dialog while both clients' device trust continues across restarts. A paired card removes its QR. Refresh QR code requires a fresh acknowledgement and warns that it disconnects and replaces only that card's trust and enrollment; the other client remains unchanged. Forget this client cancels only that enrollment and access. Unconfirmed server removal stays visible in its card for retry. Enrollment expiry does not expire an already paired device.
 
 On the phone, Remote connection opens a bottom-aligned modal. Close, Escape and the backdrop dismiss it without reconnecting; focus returns to the status button. Disconnected, pairing-required, replaced-page and uncertain-revocation states remain in that same navigation position. A replaced page cannot reconnect. The outer relay retains its controls until the application and the inner entry are both usable, and restores them when the entry disappears.
 
@@ -37,7 +37,7 @@ On the phone, Remote connection opens a bottom-aligned modal. Close, Escape and 
 <details>
 <summary>Implementation internals — click to expand</summary>
 
-The plugin contributes a standard menu row to `settings.launcher.actions` and a shared-store dialog to `shell.overlay`. Locale-owned copy and existing primitives supply presentation. The model serializes status reads, suppresses stale responses after mutations, and releases polling and private QR data on unload. It captures the generated Remote namespace at activation. The browser-specific QR library entry prevents Node file writers from entering the Client bundle.
+The plugin contributes a standard menu row to `settings.launcher.actions` and a shared-visibility dialog to `shell.overlay`. The dialog declares the keyed `mobile.remote.dialog.target` child slot; browser and App registrations inject separate models and restricted callbacks. Locale-owned copy and existing primitives supply presentation. Each model serializes only its own reads and operations, suppresses stale responses after mutations, and releases polling and private QR data on unload. Calls include its explicit `browser` or `app` target. The QR renderer uses each Host-issued URL verbatim: the Host issues the App-specific `dshapp://host/#fragment` URL with its own enrollment, never a UI conversion of the browser QR. The browser-specific QR library entry prevents Node file writers from entering the Client bundle.
 
 The existing trusted transport may expose optional `remoteControl` callbacks and an identity-stable connection observable. In that case the plugin contributes only a `shell.navigation.actions` entry, not desktop enrollment or polling. The registration injects the source and restricted actions; its ref reports the mounted button and releases the relay handoff on unmount or plugin disposal. The outer shell remains the connection owner. Older relays omit this capability and retain their outer controls.
 

@@ -1,7 +1,7 @@
 import { gunzipSync } from 'node:zlib'
 import { Context } from '@deepseek-ai/cordis'
 import type { PeerScope } from '@deepseek-ai/dsh-typert-protocol'
-import { expect, it } from 'vitest'
+import { expect, it, vi } from 'vitest'
 import { FullCarrier } from '../src/full-carrier.ts'
 import { isRecord } from '../src/protocol.ts'
 import type { FullPacketLane } from '../src/full-packets.ts'
@@ -84,5 +84,29 @@ it.each([
       expect(bytes.length).toBeLessThan(Buffer.byteLength(source) / 2)
       expect(frames.filter(frame => frame.type === 'body')).toHaveLength(Math.ceil(bytes.length / (192 * 1024)))
     }
+  } finally { await carrier.settled(); await ctx.fiber.dispose() }
+})
+
+it.each(['status', 'start', 'stop'])('denies phone-side mobile/%s enrollment controls before application dispatch', async (method) => {
+  const ctx = new Context()
+  const dispatch = vi.fn(async () => Response.json({ ok: true }))
+  const open = vi.fn(async function* () { yield { ok: true } })
+  ctx.provide('connection', { createSharedFetchHandler: () => ({ fetch: dispatch }) })
+  ctx.provide('typertGateway', { wireStream: { open, failure: () => ({ code: 'gateway/forbidden' }) } })
+  const frames: Record<string, unknown>[] = []
+  const carrier = new FullCarrier(ctx, async (frame) => {
+    if (!isRecord(frame)) throw new Error('expected response frame')
+    frames.push(frame)
+  }, peer)
+  try {
+    for (const [index, url] of [`/api/mobile/${method}`, `/api/unused/../mobile/${method}`].entries()) {
+      carrier.accept({ type: 'fetch', id: `denied-mobile-http-${index}`, url, method: 'POST', headers: {},
+        body: Buffer.from(JSON.stringify({ type: 'client-request', method: `mobile/${method}`, payload: { args: { target: 'app' } } })).toString('base64url') })
+    }
+    carrier.accept({ type: 'stream', id: 'denied-mobile-stream', endpoint: `mobile/${method}`, payload: { args: { target: 'browser' } } })
+    await vi.waitFor(() => { expect(frames).toHaveLength(3) })
+    expect(frames.every(frame => frame.type === 'error')).toBe(true)
+    expect(dispatch).not.toHaveBeenCalled()
+    expect(open).not.toHaveBeenCalled()
   } finally { await carrier.settled(); await ctx.fiber.dispose() }
 })

@@ -1603,22 +1603,22 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     description: 'Authenticated operator controls for enrollment and manual device revocation.',
     methods: [
       {
-        signature: '@Remote status(): MobileDesktopState',
+        signature: '@Remote status(target?: MobilePairingTarget): MobileDesktopState',
         description: 'Read enrollment and connection state for the authenticated operator.',
-        parameters: [],
+        parameters: [{ name: 'target', description: 'independent device slot; omission reads browser or its legacy Session grant.' }],
         returns: 'state with transient QR material only while enrollment is pending; never log it.',
       },
       {
         signature: '@Remote start(request: MobileStartRequest): Promise<MobileStartResult>',
-        description: 'Authorize the full instance, or a legacy Session grant when no full-device trust exists.',
-        parameters: [{ name: 'request', description: 'explicit instance consent or legacy Session selection and tool acknowledgement.' }],
+        description: 'Authorize one independent full-instance device, or a legacy browser Session grant when browser trust is absent.',
+        parameters: [{ name: 'request', description: 'instance consent with optional target (defaults to browser), or legacy Session selection with tool acknowledgement.' }],
         returns: 'a short-lived QR URL; keep it only in the desktop\'s transient view state.',
         throws: ['when disabled, already starting, revoked state is uncertain, or the selected Session cannot be used.'],
       },
       {
-        signature: '@Remote async stop(): Promise<MobileDesktopState>',
-        description: 'Stop local admission synchronously, then revoke the relay room.',
-        parameters: [],
+        signature: '@Remote async stop(target?: MobilePairingTarget): Promise<MobileDesktopState>',
+        description: 'Stop admission for one device slot, then revoke only its relay room.',
+        parameters: [{ name: 'target', description: 'independent device slot; omission stops browser or its legacy Session grant, never App.' }],
         returns: 'state distinguishing confirmed server revocation from an unknown network outcome.',
       },
     ],
@@ -6257,12 +6257,16 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface MobileDesktopState {\n    readonly scope?: \'instance\';\n    readonly mobileOnline?: boolean;\n    readonly phase: \'disabled\' | \'stopped\' | \'starting\' | \'waiting\' | \'paired\' | \'reconnecting\' | \'expired\' | \'failed\';\n    readonly sessionId: SessionId | null;\n    readonly title: string;\n    readonly expiresAt: number | null;\n    readonly ticketExpiresAt: number | null;\n    readonly relayRevoked: boolean;\n    readonly pairingUrl?: string | undefined;\n}',
   },
   {
+    name: 'MobilePairingTarget',
+    declaration: 'export type MobilePairingTarget = \'browser\' | \'app\';',
+  },
+  {
     name: 'MobileSessionStartRequest',
     declaration: 'export interface MobileSessionStartRequest {\n    readonly sessionId: SessionId;\n    readonly acknowledgeTools: true;\n    readonly allowWorkspaceRoaming?: boolean;\n}',
   },
   {
     name: 'MobileStartRequest',
-    declaration: 'export type MobileStartRequest = MobileSessionStartRequest | {\n    readonly scope: \'instance\';\n    readonly acknowledgeTools: true;\n};',
+    declaration: 'export type MobileStartRequest = MobileSessionStartRequest | {\n    readonly scope: \'instance\';\n    readonly acknowledgeTools: true;\n    readonly target?: MobilePairingTarget;\n};',
   },
   {
     name: 'MobileStartResult',

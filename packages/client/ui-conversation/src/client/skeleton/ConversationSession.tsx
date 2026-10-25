@@ -66,7 +66,8 @@ export function ConversationSessionHeader({
   const showTabs = !hideChrome && tabs.length > 1
   return (
     <>
-      <div className={css.titleRow}>
+      <div className={css.titleRow} data-conversation-title-row>
+        {hideChrome && <span className={css.newSessionTitle}>{t('session.newTitle')}</span>}
         {!hideChrome && (
           <>
             <div className={css.titleCluster}>

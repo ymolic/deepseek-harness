@@ -1,0 +1,52 @@
+{
+  "initial": [
+    {
+      "target": "browser",
+      "heading": "浏览器",
+      "instructions": "用系统相机扫描此二维码，在 Safari 中打开",
+      "status": "远控已停止",
+      "consentChecked": false,
+      "qrCount": 0,
+      "buttons": [
+        "配对此端"
+      ]
+    },
+    {
+      "target": "app",
+      "heading": "DSH App",
+      "instructions": "打开 DSH App → 扫码连接。请使用 App 内扫码，不要用系统相机或 Safari",
+      "status": "远控已停止",
+      "consentChecked": false,
+      "qrCount": 0,
+      "buttons": [
+        "配对此端"
+      ]
+    }
+  ],
+  "connected": [
+    {
+      "target": "browser",
+      "heading": "浏览器",
+      "instructions": "用系统相机扫描此二维码，在 Safari 中打开",
+      "status": "此端已配对",
+      "consentChecked": false,
+      "qrCount": 0,
+      "buttons": [
+        "刷新二维码",
+        "忘记此端"
+      ]
+    },
+    {
+      "target": "app",
+      "heading": "DSH App",
+      "instructions": "打开 DSH App → 扫码连接。请使用 App 内扫码，不要用系统相机或 Safari",
+      "status": "此端已配对",
+      "consentChecked": false,
+      "qrCount": 0,
+      "buttons": [
+        "刷新二维码",
+        "忘记此端"
+      ]
+    }
+  ]
+}

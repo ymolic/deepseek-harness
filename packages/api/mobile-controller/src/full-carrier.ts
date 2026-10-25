@@ -173,6 +173,7 @@ export class FullCarrier {
           if (!frame.url.startsWith('/') || frame.url.startsWith('//')) throw new Error('invalid application path')
           const url = new URL(frame.url, 'https://dsh.invalid')
           if (url.origin !== 'https://dsh.invalid' || url.username || url.password || url.hash) throw new Error('invalid application path')
+          if (url.pathname === '/api/mobile' || url.pathname.startsWith('/api/mobile/')) throw new Error('mobile authorization is desktop-only')
           const headers = new Headers()
           for (const [name, value] of Object.entries(frame.headers)) {
             if (!['content-type', 'accept', 'range'].includes(name.toLowerCase())) throw new Error('unsupported request header')
@@ -229,6 +230,7 @@ export class FullCarrier {
           }
           await this.send({ type: 'end', id: frame.id }, 'control')
         } else {
+          if (frame.endpoint === 'mobile' || frame.endpoint.startsWith('mobile/')) throw new Error('mobile authorization is desktop-only')
           const stream = await this.ctx.typertGateway.wireStream.open(
             frame.endpoint, frame.payload, operation.inbox, this.peer, operation.abort.signal,
           )

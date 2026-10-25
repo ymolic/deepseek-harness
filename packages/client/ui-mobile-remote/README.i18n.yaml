@@ -3,23 +3,23 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/client/ui-mobile-remote/README.md
 /:
-  en: 5b1bbbf31d394dea
-  zh: 49ba386587d4dc43
+  en: e6b1bb436bb1fea1
+  zh: 198942d48d3a24a3
 /deepseek-ai-dsh-client-ui-mobile-remote:
   en: 95480ae6d5c4109f
   zh: bd3606ec0eaf0a2b
 /deepseek-ai-dsh-client-ui-mobile-remote/summary:
-  en: e0173270b97e3a66
-  zh: ca17befe91bc40a3
+  en: 528bc64967903c77
+  zh: 9078bbd6290b6de8
 /deepseek-ai-dsh-client-ui-mobile-remote/table-of-contents:
   en: 23386452a66b2fbd
   zh: 4cf93c4bf17b3da2
 /deepseek-ai-dsh-client-ui-mobile-remote/use-this-package:
-  en: fa188f6b690fd968
-  zh: 84886ec007778d19
+  en: 9d89f3d5a2853cb0
+  zh: dacfdd28753539ae
 /deepseek-ai-dsh-client-ui-mobile-remote/understand-the-implementation:
-  en: 28a7e8c3480966fb
-  zh: 17ea2ca3746ef78f
+  en: ec2a9dfc296ac444
+  zh: f4b0d97d2c48eac5
 /deepseek-ai-dsh-client-ui-mobile-remote/further-exploration:
   en: f3cd758fd5d9fcfb
   zh: c3ec83ef1346121c

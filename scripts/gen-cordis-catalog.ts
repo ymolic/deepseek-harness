@@ -435,6 +435,7 @@ export const LINK_MAP: Readonly<Record<string, string>> = {
   SessionPromptRequest: 'session.md',
   SessionPromptValue: 'session.md',
   SessionRenameRequest: 'session.md',
+  MobilePairingTarget: 'web-client.md',
   MobileStartRequest: 'web-client.md',
   MobileStartResult: 'web-client.md',
   MobileDesktopState: 'web-client.md',

@@ -494,6 +494,9 @@ it.runIf(relayRoot).each([
     await path.press('Enter')
     await directory.getByRole('button', { name: '打开', exact: true }).click()
     await client.locator('[data-composer-input][contenteditable="true"]').waitFor()
+    await expect.poll(() => client.locator('[data-conversation-title-row]').innerText()).toBe('新会话')
+    expect(await client.locator('[data-conversation-title-row]').evaluate(element =>
+      element.getBoundingClientRect().height)).toBe(44)
     const geometry = await client.locator('[data-composer-input]').first().evaluate(element => ({
       fontSize: parseFloat(getComputedStyle(element).fontSize),
       viewport: window.innerWidth,

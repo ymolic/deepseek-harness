@@ -10,9 +10,7 @@ import { closeDevice, connectDevice, createRoom, revokeRoom } from './relay-clie
 import { FullPackets, fullDownloadWindow, packetMuxSupport, type FullPacketLane } from './full-packets.ts'
 import { FullCarrier } from './full-carrier.ts'
 import { binaryRelaySupport } from './full-binary.ts'
-import type { MobileDesktopState, MobileStartResult } from './types.ts'
-
-const KEY = credentialKey('mobile-controller', 'trusted-device')
+import type { MobileDesktopState, MobilePairingTarget, MobileStartResult } from './types.ts'
 const token = z.string().regex(/^[A-Za-z0-9_-]{43}$/)
 const savedSchema = z.object({
   version: z.literal(2), origin: z.string(), secret: token, revoked: z.boolean(),
@@ -52,8 +50,16 @@ export class FullMobileHost {
   private readonly ready: Promise<void>
   private used = false
 
-  /** @param ctx - application service owner. @param config - trusted relay configuration. */
-  constructor(private readonly ctx: Context, private readonly config: FullHostConfig) {
+  private readonly key: ReturnType<typeof credentialKey>
+
+  /**
+   * @param ctx - application service owner.
+   * @param config - trusted relay configuration.
+   * @param target - independent device slot; omission preserves the existing browser record and HTTPS QR.
+   */
+  constructor(private readonly ctx: Context, private readonly config: FullHostConfig,
+    private readonly target: MobilePairingTarget = 'browser') {
+    this.key = credentialKey('mobile-controller', target === 'app' ? 'trusted-app-device' : 'trusted-device')
     this.state = { phase: config.enabled ? 'stopped' : 'disabled', sessionId: null, title: '', expiresAt: null,
       ticketExpiresAt: null, relayRevoked: true, scope: 'instance', mobileOnline: false }
     this.ready = this.restore().catch((_error: unknown) => {
@@ -116,7 +122,8 @@ export class FullMobileHost {
       this.saved = saved
       abort.signal.throwIfAborted()
       const fragment = new URLSearchParams({ room: room.roomId, ticket: room.pairingTicket, key: saved.secret, mode: 'full' })
-      const pairingUrl = `${this.config.relayOrigin}/#${fragment}`
+      const pairingOrigin = this.target === 'app' ? `dshapp://${new URL(this.config.relayOrigin).host}` : this.config.relayOrigin
+      const pairingUrl = `${pairingOrigin}/#${fragment}`
       this.state = { ...this.state, phase: 'waiting', relayRevoked: false, ticketExpiresAt: room.expiresAt, pairingUrl }
       await this.connect()
       return { pairingUrl, state: this.state }
@@ -144,7 +151,7 @@ export class FullMobileHost {
 
   private async restore(): Promise<void> {
     if (!this.config.enabled) return
-    const record = await this.ctx.credentials.readRecord(KEY)
+    const record = await this.ctx.credentials.readRecord(this.key)
     if (!record) return
     this.used = true
     if (record.kind !== 'grant') throw new Error('invalid saved device')
@@ -161,13 +168,13 @@ export class FullMobileHost {
   }
 
   private write(saved: Saved): Promise<unknown> {
-    return this.ctx.credentials.modifyRecord(KEY, () => Promise.resolve({ kind: 'grant', payload: saved }))
+    return this.ctx.credentials.modifyRecord(this.key, () => Promise.resolve({ kind: 'grant', payload: saved }))
   }
 
   private async forget(): Promise<void> {
     if (this.restoreFailed) {
       await this.disconnect()
-      await this.ctx.credentials.deleteRecord(KEY)
+      await this.ctx.credentials.deleteRecord(this.key)
       this.restoreFailed = false
       this.state = { ...this.state, phase: 'stopped', relayRevoked: false, pairingUrl: undefined, mobileOnline: false }
       return
@@ -191,7 +198,7 @@ export class FullMobileHost {
       if (persistenceError !== undefined) throw new AggregateError([persistenceError], 'local and relay revocation unconfirmed')
       throw new Error('relay revocation unconfirmed')
     }
-    await this.ctx.credentials.deleteRecord(KEY)
+    await this.ctx.credentials.deleteRecord(this.key)
     this.saved = undefined
   }
 

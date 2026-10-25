@@ -314,7 +314,7 @@
 }
 
 .navigationActions {
-  margin-left: auto;
+  margin-inline-start: auto;
   display: flex;
   align-items: center;
   min-width: 0;

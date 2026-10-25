@@ -14,8 +14,15 @@ export interface MobileSessionStartRequest {
   readonly allowWorkspaceRoaming?: boolean
 }
 
-/** Explicit whole-instance device consent; Session execution policies are unchanged. */
-export type MobileStartRequest = MobileSessionStartRequest | { readonly scope: 'instance'; readonly acknowledgeTools: true }
+/** Independent trusted-device enrollment slot; browser and native App may remain online together. */
+export type MobilePairingTarget = 'browser' | 'app'
+
+/** Explicit whole-instance device consent; omitted target selects browser. Session execution policies are unchanged. */
+export type MobileStartRequest = MobileSessionStartRequest | {
+  readonly scope: 'instance'
+  readonly acknowledgeTools: true
+  readonly target?: MobilePairingTarget
+}
 
 /** Non-secret state safe to show after closing the QR dialog. */
 export interface MobileDesktopState {

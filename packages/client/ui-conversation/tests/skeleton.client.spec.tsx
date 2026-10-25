@@ -550,6 +550,7 @@ describe('ConversationRoot resident composer', () => {
     expect(host).not.toBeNull()
     expect(header?.getAttribute('aria-hidden')).not.toBe('true')
     expect(b.view.getByTestId('view-conversation.session.header.corner')).toBeTruthy()
+    expect(b.view.container.querySelector('[data-conversation-title-row]')?.textContent).toContain('新会话')
     expect(b.view.queryByRole('tablist')).toBeNull()
     expect(b.slotCalls).not.toContain('conversation.session.header.utilities')
     expect(b.slotCalls).not.toContain('conversation.session.header.actions')
@@ -661,6 +662,22 @@ describe('ConversationRoot resident composer', () => {
     expect(b.view.getByRole('tab', { name: 'New view' }).getAttribute('aria-selected')).toBe('false')
     // The browser drag lane anchors its header tab-strip probe on this marker.
     expect(b.view.getByRole('tablist').hasAttribute('data-conversation-tabs')).toBe(true)
+  })
+
+  it('keeps each registered conversation view available through its header tab', () => {
+    const viewTabs: ViewTab[] = [
+      { id: 'chat', label: 'Chat' },
+      { id: 'trajectory', label: 'Trajectory' },
+      { id: 'context', label: 'Context' },
+      { id: 'team', label: 'Team' },
+    ]
+    const b = mount(sessionSnapshotOf(), undefined, undefined, { viewTabs })
+    expect(b.view.getAllByRole('tab').map(tab => tab.textContent)).toEqual(viewTabs.map(tab => tab.label))
+    for (const tab of viewTabs) {
+      fireEvent.click(b.view.getByRole('tab', { name: tab.label }))
+      expect(b.view.getByRole('tab', { name: tab.label }).getAttribute('aria-selected')).toBe('true')
+      expect(b.view.getByTestId(`view-${tab.id}`)).toBeTruthy()
+    }
   })
 
   it('rolls the pending workspace label back when switching fails', async () => {

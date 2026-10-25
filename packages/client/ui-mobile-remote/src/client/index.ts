@@ -4,11 +4,11 @@ import { defineStore, type StoreHandle } from '@deepseek-ai/dsh-client-store'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings-account/client'
-import type {} from '@deepseek-ai/dsh-client-ui-session/client'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import { Config } from '../config.ts'
-import { MobileDialog, MobileMenu } from './MobileDialog.tsx'
+import { MobileDialog, MobileMenu, MobileTargetCard } from './MobileDialog.tsx'
+import type { MobilePairingTarget } from '@deepseek-ai/dsh-api-mobile-controller/types'
 import { MobileModel } from './model.ts'
 import { en, zh, type MobileKey } from './locales.ts'
 import { PhoneConnection } from './PhoneConnection.tsx'
@@ -24,8 +24,9 @@ export function createMobileViewStore(): StoreHandle<MobileView, { show: (draft:
   return defineStore({ init: () => ({ open: false }), actions: { show: (draft, open: boolean) => { draft.open = open } } })
 }
 
-/** Plain callbacks and a framework-bound authorization source. */
+/** Plain callbacks and a framework-bound source for one independently authorized target. */
 export interface MobileFace {
+  readonly target: MobilePairingTarget
   readonly hooks: { readonly mobile: MobileModel['source'] }
   readonly start: MobileModel['start']
   readonly stop: MobileModel['stop']
@@ -35,6 +36,10 @@ export interface MobileFace {
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap { 'mobile.remote': MobileKey }
+  interface SlotMap {
+    /** One independently consented browser or App pairing card in the desktop dialog. */
+    'mobile.remote.dialog.target': { kind: 'keyed'; scope: 'root' }
+  }
 }
 
 /** The browser has no relay or device credentials. */
@@ -54,19 +59,32 @@ export function apply(ctx: Context, config: Config): void {
     return
   }
   const mobile = ctx.remote.mobile
-  const model = new MobileModel({
-    status: async () => { const result = await mobile.status(); if (!result.ok) throw result.error; return result.value },
-    start: async (request) => { const result = await mobile.start(request); if (!result.ok) throw result.error; return result.value },
-    stop: async () => { const result = await mobile.stop(); if (!result.ok) throw result.error; return result.value },
-  }, resolved.pollMs)
-  ctx.effect(() => () => model.dispose(), 'mobile: private QR and status polling')
+  const operations = {
+    status: async (target: MobilePairingTarget) => {
+      const result = await mobile.status(target); if (!result.ok) throw result.error; return result.value
+    },
+    start: async (request: Parameters<typeof mobile.start>[0]) => {
+      const result = await mobile.start(request); if (!result.ok) throw result.error; return result.value
+    },
+    stop: async (target: MobilePairingTarget) => {
+      const result = await mobile.stop(target); if (!result.ok) throw result.error; return result.value
+    },
+  }
+  for (const target of ['browser', 'app'] as const) {
+    const model = new MobileModel(operations, resolved.pollMs, target)
+    ctx.effect(() => () => model.dispose(), `mobile: ${target} private QR and status polling`)
+    const face: MobileFace = { target, hooks: { mobile: model.source }, start: () => model.start(),
+      stop: () => model.stop(), refresh: () => model.refresh(), showing: (visible) => { model.showing(visible) } }
+    ctx.slots.inject('mobile.remote.dialog.target', () => ctx.slots.register({
+      name: 'mobile.remote.dialog.target', key: target, locale: 'mobile.remote', inject: () => face,
+    }, MobileTargetCard))
+  }
   const store = createMobileViewStore()
-  const face: MobileFace = { hooks: { mobile: model.source }, start: request => model.start(request),
-    stop: () => model.stop(), refresh: () => model.refresh(), showing: (visible) =>{  model.showing(visible) } }
   ctx.slots.inject('settings.launcher.actions', () => ctx.slots.register({
-    name: 'settings.launcher.actions', id: 'mobile-remote', locale: 'mobile.remote', store, inject: () => face,
+    name: 'settings.launcher.actions', id: 'mobile-remote', locale: 'mobile.remote', store,
   }, MobileMenu))
   ctx.slots.inject('shell.overlay', () => ctx.slots.register({
-    name: 'shell.overlay', id: 'mobile-remote', locale: 'mobile.remote', store, inject: () => face,
+    name: 'shell.overlay', id: 'mobile-remote', locale: 'mobile.remote', store,
+    children: { 'mobile.remote.dialog.target': { kind: 'keyed', scope: 'root' } },
   }, MobileDialog))
 }

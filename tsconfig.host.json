@@ -9,6 +9,7 @@
   },
   "include": [
     "apps/web/tests/mobile-full-client.e2e.ts",
+    "apps/web/tests/mobile-dual-client.e2e.ts",
     "apps/web/tests/mobile-stream.e2e.ts",
     "apps/web/tests/mobile-transport.e2e.ts",
     "apps/web/tests/mobile-transport.perf.ts",

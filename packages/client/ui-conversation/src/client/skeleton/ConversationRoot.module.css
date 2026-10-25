@@ -80,6 +80,95 @@
   padding-inline-start: max(0px, calc(var(--dsh-frame-leading-clearance, 0px) - 20px));
 }
 
+.newSessionTitle {
+  display: none;
+}
+
+/* Phone navigation belongs to the shell; this header owns only Session chrome. */
+@media (max-width: 639px) {
+  :global(html:not([data-platform])) .header {
+    min-height: 0;
+    padding: 0 max(12px, env(safe-area-inset-right)) 0 max(12px, env(safe-area-inset-left));
+  }
+
+  :global(html:not([data-platform])) .header:not(.headerSessionless) .titleRow {
+    min-height: 44px;
+    padding-inline-start: 0;
+  }
+
+  :global(html:not([data-platform])) .header:where(:not(:has(.tabs))) {
+    padding-bottom: 0;
+  }
+
+  :global(html:not([data-platform])) .newSessionTitle {
+    display: block;
+    color: var(--dsw-alias-label-secondary);
+    font-size: 14px;
+    line-height: 20px;
+    font-weight: 500;
+  }
+
+  :global(html:not([data-platform])) .header .titleCluster {
+    gap: 4px;
+  }
+
+  :global(html:not([data-platform])) .header .crumbs {
+    flex: 1 1 0;
+  }
+
+  :global(html:not([data-platform])) .header .crumbSeg:last-child {
+    flex: 1 1 auto;
+  }
+
+  :global(html:not([data-platform])) .header .crumb {
+    padding-inline: 0;
+  }
+
+  :global(html:not([data-platform])) .header .headerActions,
+  :global(html:not([data-platform])) .header .headerUtilities {
+    gap: 0;
+  }
+
+  :global(html:not([data-platform])) .header .headerUtilities {
+    margin-inline: 4px 0;
+  }
+
+  :global(html:not([data-platform])) .header :is(.headerActions, .headerUtilities, .headerCorner) :where(button) {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  :global(html:not([data-platform])) .header .headerCorner {
+    margin-inline: 0 -4px;
+  }
+
+  :global(html:not([data-platform])) .headerBlank .headerCorner {
+    margin-inline-start: auto;
+  }
+
+  :global(html:not([data-platform])) .header .tabs {
+    gap: 0;
+    margin-top: 0;
+    padding-inline: 0;
+    overflow-x: auto;
+  }
+
+  :global(html:not([data-platform])) .header .tab {
+    flex: 1 0 0;
+    min-width: max-content;
+    min-height: 44px;
+    padding: 12px 8px;
+    line-height: 20px;
+    white-space: nowrap;
+  }
+
+  :global(html:not([data-platform])) .header .tab::after {
+    right: 8px;
+    bottom: 0;
+    left: 8px;
+  }
+}
+
 .titleCluster {
   display: flex;
   flex: 1;

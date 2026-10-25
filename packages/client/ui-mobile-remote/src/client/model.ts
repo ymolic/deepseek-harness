@@ -1,27 +1,26 @@
 /** Nonpersistent desktop view of the Host authorization; QR bytes never leave this model. */
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
-import type { MobileDesktopState, MobileStartResult, MobileStartRequest } from '@deepseek-ai/dsh-api-mobile-controller/types'
+import type { MobileDesktopState, MobilePairingTarget, MobileStartResult, MobileStartRequest } from '@deepseek-ai/dsh-api-mobile-controller/types'
 import QRCode from 'qrcode/lib/browser.js'
 
 /** Plain callbacks keep the model independent of Cordis and generated remotes. */
 export interface MobileOperations {
-  status: () => Promise<MobileDesktopState>
+  status: (target: MobilePairingTarget) => Promise<MobileDesktopState>
   start: (request: MobileStartRequest) => Promise<MobileStartResult>
-  stop: () => Promise<MobileDesktopState>
+  stop: (target: MobilePairingTarget) => Promise<MobileDesktopState>
 }
 
-/** Observable data for both the menu row and overlay. */
+/** Observable authorization status and private QR material for one target card. */
 export interface MobileView {
   state: MobileDesktopState | null
   qr: string | null
   busy: boolean
   failed: boolean
-  now: number
 }
 
 /** One plugin-owned status reader with bounded, nonoverlapping polling. */
 export class MobileModel {
-  readonly source = createSnapshotStore<MobileView>({ state: null, qr: null, busy: false, failed: false, now: Date.now() })
+  readonly source = createSnapshotStore<MobileView>({ state: null, qr: null, busy: false, failed: false })
   private disposed = false
   private visible = false
   private generation = 0
@@ -32,11 +31,14 @@ export class MobileModel {
 
   private current(generation: number): boolean { return !this.disposed && this.generation === generation }
 
-  /** @param operations - trusted desktop Remote calls. @param pollMs - status cadence. */
-  constructor(private readonly operations: MobileOperations, pollMs: number) {
+  /**
+   * @param operations - trusted desktop Remote calls.
+   * @param pollMs - status cadence.
+   * @param target - isolated trust managed by this model.
+   */
+  constructor(private readonly operations: MobileOperations, pollMs: number, private readonly target: MobilePairingTarget) {
     this.timer = setInterval(() => {
       const view = this.source.getSnapshot()
-      this.source.update((state) => { state.now = Date.now() })
       if (this.visible || view.state && ['waiting', 'paired', 'reconnecting'].includes(view.state.phase)) void this.refresh()
     }, pollMs)
   }
@@ -51,7 +53,7 @@ export class MobileModel {
     const generation = this.generation
     const task = (async () => {
       try {
-        const value = await this.operations.status()
+        const value = await this.operations.status(this.target)
         if (!this.disposed && this.generation === generation) this.source.update((state) => {
           state.state = value
           if (value.phase !== 'waiting' || (value.ticketExpiresAt !== null && value.ticketExpiresAt <= Date.now())) {
@@ -75,10 +77,10 @@ export class MobileModel {
     return task
   }
 
-  /** @param request - explicitly acknowledged operator consent. */
-  start(request: MobileStartRequest): Promise<void> {
+  /** Create or replace only this target's trust after an acknowledged operator gesture. */
+  start(): Promise<void> {
     return this.operate(async (generation) => {
-      const value = await this.operations.start(request)
+      const value = await this.operations.start({ scope: 'instance', acknowledgeTools: true, target: this.target })
       if (!this.current(generation)) return
       this.source.update((state) => { state.state = value.state })
       const qr = await QRCode.toDataURL(value.pairingUrl, { width: 300, margin: 2, errorCorrectionLevel: 'M' })
@@ -89,7 +91,7 @@ export class MobileModel {
   /** Revoke through the Host; hiding the overlay never calls this method. */
   stop(): Promise<void> {
     return this.operate(async (generation) => {
-      const value = await this.operations.stop()
+      const value = await this.operations.stop(this.target)
       if (!this.disposed && this.generation === generation) this.source.update((state) => { state.state = value })
     }, true)
   }

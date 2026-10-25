@@ -4476,9 +4476,6 @@ importers:
       '@deepseek-ai/dsh-client-ui-renderer':
         specifier: workspace:*
         version: link:../ui-renderer
-      '@deepseek-ai/dsh-client-ui-session':
-        specifier: workspace:*
-        version: link:../ui-session
       '@deepseek-ai/dsh-client-ui-settings-account':
         specifier: workspace:*
         version: link:../ui-settings-account
