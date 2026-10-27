@@ -814,6 +814,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'Fetch handler for trusted, authenticated requests.',
       },
       {
+        signature: 'dispatchRpc(request: Request, peer: PeerScope): Promise<Response> | undefined',
+        description: 'Dispatch one request to the RPC channel that registered its path. The HTTP carrier authenticates over cookies before reaching its route; a companion carrier that authenticates another way passes the Peer it admitted here instead, and the channel answers as it does over HTTP — including its 404 for a path or method it does not own.',
+        parameters: [{ name: 'request', description: 'request below a registered channel prefix.' }, { name: 'peer', description: 'Peer the caller admitted the request for.' }],
+        returns: 'the channel\'s response, or undefined when no channel owns the path.',
+      },
+      {
         signature: 'requestRejection(request: ConnectionTrustRequest): ConnectionRequestRejection',
         description: 'Apply Connection\'s Host/Origin checks and browser authentication to another Web route.',
         parameters: [{ name: 'request', description: 'request headers from the HTTP or upgrade request.' }],

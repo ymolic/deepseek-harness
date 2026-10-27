@@ -225,6 +225,18 @@ export interface HostConnectionHandle {
   createSharedFetchHandler(channel: '/api'): ConnectionFetchHandler
 
   /**
+   * Dispatch one request to the RPC channel that registered its path. The HTTP
+   * carrier authenticates over cookies before reaching its route; a companion
+   * carrier that authenticates another way passes the Peer it admitted here
+   * instead, and the channel answers as it does over HTTP — including its 404
+   * for a path or method it does not own.
+   * @param request - request below a registered channel prefix.
+   * @param peer - Peer the caller admitted the request for.
+   * @returns the channel's response, or undefined when no channel owns the path.
+   */
+  dispatchRpc(request: Request, peer: PeerScope): Promise<Response> | undefined
+
+  /**
    * Apply Connection's Host/Origin checks and browser authentication to
    * another Web route.
    * @param request - request headers from the HTTP or upgrade request.

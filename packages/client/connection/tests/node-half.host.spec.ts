@@ -478,11 +478,61 @@ describe('connection node half', () => {
     }])
 
     expect(() => connection.rpc.handle('/rpc', async () => ({ ok: true, value: null })))
-      .toThrow(/duplicate route/)
+      .toThrow(/already registered/)
     await remove()
     expect(routes.map(candidate => candidate.path)).toEqual([API_PATH, '/connect'])
     await fiber.dispose()
     expect(routes).toHaveLength(0)
+  })
+
+  it('dispatches an admitted request in process to the channel owning its path', async () => {
+    const ctx = new Context()
+    const routes: WebRoute[] = []
+    provideBrowserCredentials(ctx)
+    ctx.provide('webServer', fakeHttpServer(routes, []) as WebServer)
+    const fiber = ctx.plugin({ inject: [...inject], apply })
+    await fiber.await()
+    const connection = ctx.get('connection') as HostConnectionHandle
+    const calls: unknown[] = []
+    const remove = connection.rpc.handle('/rpc', async (endpoint, payload, _signal, peer) => {
+      calls.push({ endpoint, payload, peer })
+      return { ok: true, value: { accepted: true } }
+    })
+    const peer = { principal: { kind: 'owner' } } as PeerScope
+    const envelope = {
+      type: 'client-request',
+      rpcId: 'rpc-in-process',
+      method: 'goals/create',
+      payload: { args: {} },
+    }
+    const request = (): Request => new Request('https://dsh.invalid/rpc/goals/create', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(envelope),
+    })
+
+    const response = await connection.dispatchRpc(request(), peer)
+    expect(response?.status).toBe(200)
+    expect(await response?.json()).toEqual({
+      type: 'server-response',
+      rpcId: 'rpc-in-process',
+      result: { ok: true, value: { accepted: true } },
+    })
+    expect(calls).toEqual([{ endpoint: 'goals/create', payload: { args: {} }, peer }])
+
+    expect(connection.dispatchRpc(new Request('https://dsh.invalid/other/list'), peer)).toBeUndefined()
+    expect((await connection.dispatchRpc(new Request('https://dsh.invalid/rpc/goals/create'), peer))?.status)
+      .toBe(404)
+    const wrongType = await connection.dispatchRpc(new Request('https://dsh.invalid/rpc/goals/create', {
+      method: 'POST',
+      headers: { 'content-type': 'text/plain' },
+      body: '{}',
+    }), peer)
+    expect(wrongType?.status).toBe(415)
+
+    await remove()
+    expect(connection.dispatchRpc(request(), peer)).toBeUndefined()
+    await fiber.dispose()
   })
 
   it('dispatches claimed /api endpoints and withdraws the claim', async () => {

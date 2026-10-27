@@ -9,8 +9,84 @@ import type { FullPacketLane } from '../src/full-packets.ts'
 /** The paths under test forward the Peer without reading more than its caller identity. */
 const peer = { principal: { kind: 'owner' } } as PeerScope
 
+it('dispatches a registered plugin RPC channel before the resource reader', async () => {
+  const ctx = new Context()
+  const readResource = vi.fn(async () => new Response(null, { status: 405 }))
+  const dispatchRpc = vi.fn(async () => Response.json({
+    type: 'server-response',
+    rpcId: 'automation-snapshot',
+    result: { ok: true, value: { tasks: [] } },
+  }))
+  ctx.provide('connection', {
+    createSharedFetchHandler: () => ({ fetch: async () => new Response(null, { status: 404 }) }),
+    dispatchRpc,
+  })
+  ctx.provide('webServer', { readResource })
+  const frames: Record<string, unknown>[] = []
+  const carrier = new FullCarrier(ctx, async (frame) => {
+    if (!isRecord(frame)) throw new Error('expected response frame')
+    frames.push(frame)
+    if (frame.type === 'response') carrier.accept({ type: 'response-pull', id: 'automation-snapshot-0001' })
+  }, peer)
+  try {
+    carrier.accept({
+      type: 'fetch',
+      id: 'automation-snapshot-0001',
+      url: '/dsh-automation/snapshot',
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: Buffer.from(JSON.stringify({
+        type: 'client-request', rpcId: 'automation-snapshot', method: 'snapshot', payload: {},
+      })).toString('base64url'),
+    })
+    await vi.waitFor(() => { expect(frames.some(frame => frame.type === 'end')).toBe(true) })
+    expect(frames[0]).toMatchObject({ type: 'response', status: 200 })
+    const bytes = Buffer.concat(frames.filter(frame => frame.type === 'body')
+      .map(frame => Buffer.from(String(frame.data), 'base64url')))
+    expect(JSON.parse(bytes.toString())).toEqual({
+      type: 'server-response',
+      rpcId: 'automation-snapshot',
+      result: { ok: true, value: { tasks: [] } },
+    })
+    expect(dispatchRpc).toHaveBeenCalledTimes(1)
+    expect(readResource).not.toHaveBeenCalled()
+  } finally { await carrier.settled(); await ctx.fiber.dispose() }
+})
+
+it('leaves a request no channel owns to the resource reader', async () => {
+  const ctx = new Context()
+  const readResource = vi.fn(async () => new Response(null, { status: 405 }))
+  ctx.provide('connection', {
+    createSharedFetchHandler: () => ({ fetch: async () => new Response(null, { status: 404 }) }),
+    dispatchRpc: () => undefined,
+  })
+  ctx.provide('webServer', { readResource })
+  const frames: Record<string, unknown>[] = []
+  const carrier = new FullCarrier(ctx, async (frame) => {
+    if (!isRecord(frame)) throw new Error('expected response frame')
+    frames.push(frame)
+  }, peer)
+  try {
+    carrier.accept({
+      type: 'fetch',
+      id: 'unclaimed-post-0001',
+      url: '/unclaimed/snapshot',
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: Buffer.from('{}').toString('base64url'),
+    })
+    await vi.waitFor(() => { expect(frames.some(frame => frame.type === 'end')).toBe(true) })
+    expect(frames[0]).toMatchObject({ type: 'response', status: 405 })
+    expect(readResource).toHaveBeenCalledTimes(1)
+  } finally { await carrier.settled(); await ctx.fiber.dispose() }
+})
+
 it('writes response headers and demanded body without awaiting their peer acknowledgements', async () => {
   const ctx = new Context()
+  ctx.provide('connection', {
+    createSharedFetchHandler: () => ({ fetch: async () => new Response(null, { status: 404 }) }),
+    dispatchRpc: () => undefined,
+  })
   ctx.provide('webServer', { readResource: async () => new Response('synthetic response') })
   const written: unknown[] = [], acknowledged: unknown[] = []
   const ending = Promise.withResolvers<undefined>(), release = Promise.withResolvers<undefined>()
@@ -34,6 +110,10 @@ it('writes response headers and demanded body without awaiting their peer acknow
 
 it('offers short HTTP response bodies to the control lane', async () => {
   const ctx = new Context()
+  ctx.provide('connection', {
+    createSharedFetchHandler: () => ({ fetch: async () => new Response(null, { status: 404 }) }),
+    dispatchRpc: () => undefined,
+  })
   ctx.provide('webServer', { readResource: async () => Response.json({ models: ['synthetic-model'] }) })
   const lanes: { type: unknown; lane: FullPacketLane | undefined }[] = []
   const ended = Promise.withResolvers<undefined>()
@@ -62,6 +142,10 @@ it.each([
   const ctx = new Context()
   const source = Array.from({ length: 40000 }, (_, index) =>
     `const entry${index} = "${(index * 2654435761 >>> 0).toString(16)}";\n`).join('')
+  ctx.provide('connection', {
+    createSharedFetchHandler: () => ({ fetch: async () => new Response(null, { status: 404 }) }),
+    dispatchRpc: () => undefined,
+  })
   ctx.provide('webServer', { readResource: async () => new Response(source, { status, headers: { 'content-type': contentType } }) })
   const frames: Record<string, unknown>[] = []
   let finish!: () => void
@@ -91,7 +175,10 @@ it.each(['status', 'start', 'stop'])('denies phone-side mobile/%s enrollment con
   const ctx = new Context()
   const dispatch = vi.fn(async () => Response.json({ ok: true }))
   const open = vi.fn(async function* () { yield { ok: true } })
-  ctx.provide('connection', { createSharedFetchHandler: () => ({ fetch: dispatch }) })
+  ctx.provide('connection', {
+    createSharedFetchHandler: () => ({ fetch: dispatch }),
+    dispatchRpc: () => undefined,
+  })
   ctx.provide('typertGateway', { wireStream: { open, failure: () => ({ code: 'gateway/forbidden' }) } })
   const frames: Record<string, unknown>[] = []
   const carrier = new FullCarrier(ctx, async (frame) => {

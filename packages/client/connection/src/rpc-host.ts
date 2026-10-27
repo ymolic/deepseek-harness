@@ -75,6 +75,7 @@ export class HostConnectionService extends Service implements HostConnectionHand
   private disposed = false
   private readonly interceptors = new Map<string, ConnectionRpcInterceptor>()
   private readonly fetchRoutes = new Map<string, RegisteredFetchRoute>()
+  private readonly channels = new Map<string, ConnectionFetchHandler>()
 
   readonly allowsRemoteAuthorities: boolean
 
@@ -231,6 +232,28 @@ export class HostConnectionService extends Service implements HostConnectionHand
     }
   }
 
+  /**
+   * Dispatch one request the caller has already admitted to the RPC channel
+   * that owns its path, with the same endpoint decoding, envelope validation
+   * and non-POST 404 the channel's HTTP route answers.
+   * @param request - request below a registered channel; no cookie, Host or Origin is checked here.
+   * @param peer - Peer the caller admitted the request for.
+   * @returns the channel's response, or undefined when no channel owns the path.
+   */
+  dispatchRpc(request: Request, peer: PeerScope): Promise<Response> | undefined {
+    return this.channelHandler(new URL(request.url).pathname)?.fetch(request, peer)
+  }
+
+  /** Longest channel prefix owning `pathname`, matching the HTTP prefix table. */
+  private channelHandler(pathname: string): ConnectionFetchHandler | undefined {
+    let match: { channel: string; handler: ConnectionFetchHandler } | undefined
+    for (const [channel, handler] of this.channels) {
+      if (pathname !== channel && !pathname.startsWith(`${channel}/`)) continue
+      if (match === undefined || channel.length > match.channel.length) match = { channel, handler }
+    }
+    return match?.handler
+  }
+
   private registerFetchRoute(
     owner: Context,
     route: ConnectionFetchRoute,
@@ -270,10 +293,17 @@ export class HostConnectionService extends Service implements HostConnectionHand
         await bridge(req, res, fetchHandler, admission.peer)
       },
     }
-    return owner.effect(
-      () => owner.webServer.register(route),
-      `client-connection: ${channel} rpc channel`,
-    )
+    return owner.effect(() => {
+      if (this.channels.has(channel)) {
+        throw new Error(`connection: RPC channel ${JSON.stringify(channel)} is already registered`)
+      }
+      const removeRoute = owner.webServer.register(route)
+      this.channels.set(channel, fetchHandler)
+      return () => {
+        this.channels.delete(channel)
+        removeRoute()
+      }
+    }, `client-connection: ${channel} rpc channel`)
   }
 
   private registerInterceptor(

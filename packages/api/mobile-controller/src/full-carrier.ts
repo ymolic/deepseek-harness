@@ -190,7 +190,10 @@ export class FullCarrier {
             ? await this.ctx.connection.createSharedFetchHandler('/api').fetch(request, this.peer)
             : url.pathname === '/plugins/events' && frame.method === 'GET'
               ? moduleEvents(this.ctx, operation.abort.signal)
-              : await this.ctx.webServer.readResource(request, this.peer)
+              // A plugin's own Connection RPC channel answers its paths, as it
+              // does over HTTP; static resources and unclaimed paths fall through.
+              : await this.ctx.connection.dispatchRpc(request, this.peer)
+                ?? await this.ctx.webServer.readResource(request, this.peer)
           const responseHeaders: Record<string, string> = {}
           for (const name of ['content-type', 'content-disposition', 'content-length', 'content-range', 'accept-ranges', 'cache-control']) {
             const value = response.headers.get(name)
