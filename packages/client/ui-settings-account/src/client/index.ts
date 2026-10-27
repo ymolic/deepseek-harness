@@ -14,7 +14,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 }
 
 /** Services required by account settings. */
-export const inject = ['slots', 'locale', 'remote', 'remote.account', 'remote.session', 'theme', 'configForms']
+export const inject = ['slots', 'locale', 'remote', 'remote.account', 'remote.session', 'theme', 'configForms', 'remoteAccess']
 
 /**
  * Activate account UI only after the Desktop-only module loads.

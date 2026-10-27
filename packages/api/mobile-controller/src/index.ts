@@ -85,7 +85,7 @@ interface Grant {
 /** Authenticated operator controls for enrollment and manual device revocation. */
 export class MobileController extends TypertRemoteService {
   static inject = ['agents', 'sessionController', 'sessionProjections', 'credentials', 'workspaceRegistry',
-    'connection', 'typertGateway', 'clientModules', 'frontendAssets']
+    'connection', 'typertGateway', 'clientModules', 'webServer']
   static Config: z<Config> = z.object({
     enabled: z.boolean().default(false), relayOrigin: z.string().default(''),
     credential: z.string().default('DSH_MOBILE_DESKTOP_TOKEN'),

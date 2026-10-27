@@ -2,7 +2,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-api-gateway'
 import type {} from '@deepseek-ai/dsh-client-modules'
-import type {} from '@deepseek-ai/dsh-host-frontend-static'
+import type {} from '@deepseek-ai/dsh-host-webserver'
 import type {} from '@deepseek-ai/dsh-client-connection'
 import type { PeerScope } from '@deepseek-ai/dsh-typert-protocol'
 import { z } from 'zod'
@@ -190,9 +190,7 @@ export class FullCarrier {
             ? await this.ctx.connection.createSharedFetchHandler('/api').fetch(request, this.peer)
             : url.pathname === '/plugins/events' && frame.method === 'GET'
               ? moduleEvents(this.ctx, operation.abort.signal)
-              : url.pathname.startsWith('/plugins/')
-                ? await this.ctx.clientModules.fetchBundle(request)
-                : await this.ctx.frontendAssets.fetch(request)
+              : await this.ctx.webServer.readResource(request, this.peer)
           const responseHeaders: Record<string, string> = {}
           for (const name of ['content-type', 'content-disposition', 'content-length', 'content-range', 'accept-ranges', 'cache-control']) {
             const value = response.headers.get(name)

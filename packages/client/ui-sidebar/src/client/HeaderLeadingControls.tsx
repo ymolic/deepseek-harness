@@ -18,10 +18,14 @@ export type HeaderLeadingControlsProps =
  * Sidebar-open and New Session controls in the frame's window-chrome seat.
  * The frame places these controls in phone navigation or beside macOS traffic
  * lights when the sidebar is hidden. Its modal drawer covers this seat while open.
- * @param props - Injected sidebar actions plus the sidebar locale seat.
- * @returns the two window-chrome controls.
+ * @param props - Injected sidebar actions, the global access Hook, and the sidebar locale seat.
+ * @returns the sidebar toggle, plus the New Session control while access allows `session/create`.
  */
-export function HeaderLeadingControls({ toggleSidebar, startSession, useShortcuts, t }: HeaderLeadingControlsProps) {
+export function HeaderLeadingControls({
+  toggleSidebar, startSession, trackEntryClick, useRemoteAccess, useShortcuts, t,
+}: HeaderLeadingControlsProps) {
+  // A page whose access snapshot excludes starting a Session keeps only the sidebar toggle here.
+  const canStartSession = useRemoteAccess('session/create')
   const shortcut = useShortcuts(rows => rows.find(row => row.id === 'sidebar.left.toggle'))
   const newShortcut = useShortcuts(rows => rows.find(row => row.id === 'session.new'))
   return (
@@ -41,17 +45,22 @@ export function HeaderLeadingControls({ toggleSidebar, startSession, useShortcut
           <IconPanelLeftOutlineRegular size={16} />
         </button>
       </Tooltip>
-      <Tooltip label={t('session.new.label')} shortcutKeys={newShortcut?.keys} delayMs={500}>
-        <button
-          type="button"
-          className={css.iconButton}
-          aria-label={t('session.new.label')}
-          aria-keyshortcuts={newShortcut?.aria}
-          onClick={() => { startSession() }}
-        >
-          <IconNewChatOutlineRegular size={16} />
-        </button>
-      </Tooltip>
+      {canStartSession && (
+        <Tooltip label={t('session.new.label')} shortcutKeys={newShortcut?.keys} delayMs={500}>
+          <button
+            type="button"
+            className={css.iconButton}
+            aria-label={t('session.new.label')}
+            aria-keyshortcuts={newShortcut?.aria}
+            onClick={() => {
+              trackEntryClick({ menu_name: 'new_session', position: 'titlebar' })
+              startSession()
+            }}
+          >
+            <IconNewChatOutlineRegular size={16} />
+          </button>
+        </Tooltip>
+      )}
     </div>
   )
 }

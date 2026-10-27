@@ -11,7 +11,7 @@ const peer = { principal: { kind: 'owner' } } as PeerScope
 
 it('writes response headers and demanded body without awaiting their peer acknowledgements', async () => {
   const ctx = new Context()
-  ctx.provide('frontendAssets', { fetch: async () => new Response('synthetic response') })
+  ctx.provide('webServer', { readResource: async () => new Response('synthetic response') })
   const written: unknown[] = [], acknowledged: unknown[] = []
   const ending = Promise.withResolvers<undefined>(), release = Promise.withResolvers<undefined>()
   const carrier = new FullCarrier(ctx, async (frame) => {
@@ -34,7 +34,7 @@ it('writes response headers and demanded body without awaiting their peer acknow
 
 it('offers short HTTP response bodies to the control lane', async () => {
   const ctx = new Context()
-  ctx.provide('frontendAssets', { fetch: async () => Response.json({ models: ['synthetic-model'] }) })
+  ctx.provide('webServer', { readResource: async () => Response.json({ models: ['synthetic-model'] }) })
   const lanes: { type: unknown; lane: FullPacketLane | undefined }[] = []
   const ended = Promise.withResolvers<undefined>()
   const carrier = new FullCarrier(ctx, async (frame, lane) => {
@@ -62,7 +62,7 @@ it.each([
   const ctx = new Context()
   const source = Array.from({ length: 40000 }, (_, index) =>
     `const entry${index} = "${(index * 2654435761 >>> 0).toString(16)}";\n`).join('')
-  ctx.provide('frontendAssets', { fetch: async () => new Response(source, { status, headers: { 'content-type': contentType } }) })
+  ctx.provide('webServer', { readResource: async () => new Response(source, { status, headers: { 'content-type': contentType } }) })
   const frames: Record<string, unknown>[] = []
   let finish!: () => void
   const ended = new Promise<void>((resolve) => { finish = resolve })

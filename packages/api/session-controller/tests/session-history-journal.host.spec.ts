@@ -3,6 +3,7 @@
 import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import AgentRegistry, { type Agent, type AssistantStreamFrame } from '@deepseek-ai/dsh-agent'
+import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import SessionStore from '@deepseek-ai/dsh-session'
 import { LlmAttemptId, ToolCallId, createMessage, createToolResultMessage, createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { MessageSource } from '@deepseek-ai/dsh-llm'
@@ -50,6 +51,7 @@ function appendExtension(session: Session, type: string, data: unknown): Session
 async function harness(): Promise<{ ctx: Context }> {
   const ctx = new Context()
   await ctx.plugin(SessionStore)
+  await ctx.plugin(SessionProjectionRegistry)
   await ctx.plugin(AgentRegistry)
   installSessionReadTestServices(ctx)
   return { ctx }
@@ -719,7 +721,7 @@ describe('Session history raw journal', () => {
 
   it('serves raw call and result entries without parsing tool arguments', async () => {
     const { ctx } = await harness()
-    const remote = createSessionTestRemote(ctx, { defaultModelSelection: () => ({ provider: 'p', model: 'm' }), cwd: '/tmp' })
+    const remote = await createSessionTestRemote(ctx, { defaultModelSelection: () => ({ provider: 'p', model: 'm' }), cwd: '/tmp' })
     const session = ctx.sessions.create(undefined, { meta: { cwd: '/workspace' } })
     const start = session.append('turn/start', { turn: 1 })
     const call = session.append('tool/call', {
@@ -762,7 +764,7 @@ describe('Session history raw journal', () => {
   ])('paginates $name in one contiguous Turn window', async ({ replies, beforeMessage, firstTurn, steering, minMessages = 50 }) => {
     const { ctx } = await harness()
     onTestFinished(() => ctx.fiber.dispose())
-    const remote = createSessionTestRemote(ctx, { defaultModelSelection: () => ({ provider: 'p', model: 'm' }), cwd: '/tmp' })
+    const remote = await createSessionTestRemote(ctx, { defaultModelSelection: () => ({ provider: 'p', model: 'm' }), cwd: '/tmp' })
     const session = ctx.sessions.create(undefined, { meta: { cwd: '/workspace' } })
     const starts: SessionEvent[] = []
     const messages: SessionEvent[][] = []
@@ -820,7 +822,7 @@ describe('Session history raw journal', () => {
 
   it('counts only append-origin messages toward maxMessages and keeps each compaction summary with its replacement', async () => {
     const { ctx } = await harness()
-    const remote = createSessionTestRemote(ctx, { defaultModelSelection: () => ({ provider: 'p', model: 'm' }), cwd: '/tmp' })
+    const remote = await createSessionTestRemote(ctx, { defaultModelSelection: () => ({ provider: 'p', model: 'm' }), cwd: '/tmp' })
     const session = ctx.sessions.create(undefined, { meta: { cwd: '/workspace' } })
     session.append('turn/start', { turn: 1 })
     const first = appendUserText(session, 'first prompt')
@@ -874,7 +876,7 @@ describe('Session history raw journal', () => {
 
   it('paginates a message with a large embedded stream without expanding physical records', async () => {
     const { ctx } = await harness()
-    const remote = createSessionTestRemote(ctx, { defaultModelSelection: () => ({ provider: 'p', model: 'm' }), cwd: '/tmp' })
+    const remote = await createSessionTestRemote(ctx, { defaultModelSelection: () => ({ provider: 'p', model: 'm' }), cwd: '/tmp' })
     const session = ctx.sessions.create(undefined, { meta: { cwd: '/workspace' } })
     session.append('turn/start', { turn: 1 })
     session.append('step/start', { turn: 1, step: 1 })
@@ -912,7 +914,7 @@ describe('Session history raw journal', () => {
 
   it('keeps an earlier declared source on the same message-aligned page', async () => {
     const { ctx } = await harness()
-    const remote = createSessionTestRemote(ctx, { defaultModelSelection: () => ({ provider: 'p', model: 'm' }), cwd: '/tmp' })
+    const remote = await createSessionTestRemote(ctx, { defaultModelSelection: () => ({ provider: 'p', model: 'm' }), cwd: '/tmp' })
     const session = ctx.sessions.create(undefined, { meta: { cwd: '/workspace' } })
     const source = session.append('request/context', { provider: 'p', model: 'm' })
     const laterSource = session.append('request/context', { provider: 'p', model: 'm' })
@@ -933,7 +935,7 @@ describe('Session history raw journal', () => {
 
   it('keeps compact reasoning and tool-call runs nested in one attempt event', async () => {
     const { ctx } = await harness()
-    const remote = createSessionTestRemote(ctx, { defaultModelSelection: () => ({ provider: 'p', model: 'm' }), cwd: '/tmp' })
+    const remote = await createSessionTestRemote(ctx, { defaultModelSelection: () => ({ provider: 'p', model: 'm' }), cwd: '/tmp' })
     const session = ctx.sessions.create(undefined, { meta: { cwd: '/workspace' } })
     const callId = ToolCallId('packed-call')
     const attempt = session.append('assistant/attempt', {

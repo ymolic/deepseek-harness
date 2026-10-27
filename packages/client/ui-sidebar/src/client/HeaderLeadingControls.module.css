@@ -24,8 +24,10 @@
   cursor: pointer;
 }
 
-.iconButton:hover {
-  background: var(--dsw-alias-interactive-bg-hover);
+@media (hover: hover) {
+  .iconButton:hover {
+    background: var(--dsw-alias-interactive-bg-hover);
+  }
 }
 
 @media (pointer: coarse) {

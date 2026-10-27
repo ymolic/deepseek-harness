@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-api-mobile-controller",
   "description": "Desktop-authorized encrypted mobile text sessions",
-  "version": "0.2.1-alpha.2",
+  "version": "0.2.1-rc.3",
   "publishConfig": {
     "access": "public"
   },
@@ -30,13 +30,15 @@
       "types": "./lib/typert.remote-client.d.ts",
       "default": "./lib/typert.remote-client.js"
     },
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./locale/*.json": "./locale/*.json"
   },
   "scripts": {
     "bundle": "tsdown",
     "watch": "tsdown --watch"
   },
   "files": [
+    "locale/*.json",
     "lib/index.js",
     "lib/types/**/*.js",
     "lib/types/**/*.d.ts",
@@ -61,7 +63,7 @@
     "@deepseek-ai/dsh-api-gateway": "workspace:*",
     "@deepseek-ai/dsh-client-connection": "workspace:*",
     "@deepseek-ai/dsh-client-modules": "workspace:*",
-    "@deepseek-ai/dsh-host-frontend-static": "workspace:*",
+    "@deepseek-ai/dsh-host-webserver": "workspace:*",
     "@deepseek-ai/dsh-agent": "workspace:*",
     "@deepseek-ai/dsh-api-session-controller": "workspace:*",
     "@deepseek-ai/dsh-brand": "workspace:*",

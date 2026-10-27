@@ -90,9 +90,9 @@ it.runIf(relayRoot).each([
       replayProviders: [{ id: 'deepseek-messages', name: 'DeepSeek', models: [{ id: 'deepseek-v4-flash', name: 'DeepSeek-V4-Flash',
         contextWindow: 1000000, defaultMaxTokens: 256000, reasoningEfforts: ['off', 'low', 'high', 'max'], defaultReasoningEffort: 'high' }] }] })
     const modelCatalog = vi.spyOn(scaffold.ctx.sessionController, 'modelCatalog')
-    const assetFetch = scaffold.ctx.frontendAssets.fetch.bind(scaffold.ctx.frontendAssets)
-    const assets = vi.spyOn(scaffold.ctx.frontendAssets, 'fetch').mockImplementation(async (request) => {
-      const response = await assetFetch(request)
+    const readResource = scaffold.ctx.webServer.readResource.bind(scaffold.ctx.webServer)
+    const assets = vi.spyOn(scaffold.ctx.webServer, 'readResource').mockImplementation(async (request, peer) => {
+      const response = await readResource(request, peer)
       if (request.method === 'HEAD') hostHeads++
       return response
     })

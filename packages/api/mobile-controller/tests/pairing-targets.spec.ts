@@ -24,7 +24,7 @@ function owner(origin: string, desktopToken: string, records = new Map<Credentia
     deleteRecord: async (key: CredentialKey) => { records.delete(key) },
   })
   ctx.provide('connection', { createPeer: () => ({ principal: { kind: 'owner' } }) })
-  ctx.provide('frontendAssets', { fetch: async () => new Response('isolated application') })
+  ctx.provide('webServer', { readResource: async () => new Response('isolated application') })
   const config = MobileController.Config({ enabled: true, relayOrigin: origin } as never)
   return { ctx, config, records }
 }

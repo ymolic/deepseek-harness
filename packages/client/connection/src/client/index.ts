@@ -99,6 +99,12 @@ export interface ClientTransportHooks {
    */
   loadBundle?(url: string): Promise<void>
   /**
+   * Package-asset resolver for the module system, present when the page cannot
+   * request `plugins/<package>/assets/<path>` itself (the worker tunnel): it
+   * maps each reference to a URL the page can load. Absent in the served web app.
+   */
+  resolveAsset?(reference: string): string
+  /**
    * The transport owner declares operator access to the whole Host. A local
    * worker belongs to its spawning page; a paired remote carrier must obtain
    * explicit instance-wide consent before exposing this privilege.
