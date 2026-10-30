@@ -75,3 +75,84 @@
   text-align: left;
   white-space: normal;
 }
+
+.instanceIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.instancesSection {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 0.5px solid var(--dsw-alias-border-l3);
+}
+
+.sectionHeading {
+  padding: 4px 0 6px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+  line-height: 16px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+}
+
+.instanceList {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.instanceRow {
+  width: 100%;
+  min-height: 44px;
+  padding: 0 10px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10px;
+  border-radius: var(--dsw-radius-md);
+  color: var(--dsw-alias-label-primary);
+  font-size: 13px;
+  line-height: 20px;
+  text-align: left;
+}
+
+@media (hover: hover) {
+  .instanceRow:hover {
+    background: var(--dsw-alias-interactive-bg-hover);
+  }
+}
+
+.instanceRowActive {
+  background: var(--dsw-alias-interactive-bg-hover);
+  font-weight: 500;
+}
+
+.instanceRowKindIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.instanceRowLabel {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.instanceCheck {
+  margin-inline-start: auto;
+  flex-shrink: 0;
+  color: var(--dsw-alias-label-primary);
+}
