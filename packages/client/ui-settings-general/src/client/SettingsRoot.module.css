@@ -13,6 +13,11 @@
   margin: 8px 0 10px;
 }
 
+.launcher {
+  flex: 1;
+  min-width: 0;
+}
+
 .trigger {
   flex: 1;
   min-width: 0;

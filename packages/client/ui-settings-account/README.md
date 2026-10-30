@@ -28,7 +28,7 @@ A new account-model sign-in-required event displays “Model unavailable. Please
 <a id="use-this-package"></a>
 ## Use this package
 
-The launcher exposes the root-list slot `settings.launcher.actions` inside its standard menu. Contributions receive `onDismiss` and use menu primitives to close the owning menu before opening their own UI. The [phone control plugin](../ui-mobile-remote/README.md) contributes through this slot.
+The launcher renders the [shared settings action list](../ui-settings-general/README.md#understand-the-implementation) through its `settings.launcher.actions` factory inside the standard menu. It does not own that list's declaration, so unloading account UI leaves shared actions available in the Web fallback.
 
 The client loads its account implementation and onboarding artwork asynchronously only inside Desktop, identified by its preload bridge. Plain Web clients download neither and keep the standard Settings launcher and API-key onboarding without account login, account settings, or an account-state subscription. The Loader reports a failed Desktop module load; unloading during that load prevents late account registration.
 

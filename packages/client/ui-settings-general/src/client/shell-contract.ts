@@ -8,7 +8,7 @@
  */
 import type { ConnectionState } from '@deepseek-ai/dsh-client-connection/client'
 import type {
-  HostObservable, InjectFace, PropsLocale, PropsRenderSlots, PropsRuntime,
+  HostObservable, InjectFace, PropsLocale, PropsRenderFactories, PropsRenderSlots, PropsRuntime,
 } from '@deepseek-ai/dsh-client-ui-slots'
 // Type-only: pulls ui-sidebar's SlotMap merge (the 'sidebar.settings' entry)
 // into every program that sees this contract.
@@ -44,6 +44,8 @@ export type SettingsRootInjected = {
   /** Request a fresh logical generation and physical WebSocket immediately. */
   reconnect: () => void
   hooks: {
+    /** Whether shared launcher menu actions are registered. */
+    launcherActions: HostObservable<boolean>
     /** Effective command presentation, shared with the reference. */
     shortcuts: HostObservable<readonly ShortcutCatalogEntry[]>
     /** Shared Electron status for both sidebar locations. */
@@ -74,6 +76,7 @@ export type SettingsRootComponentProps =
     | 'settings.section'
     | 'settings.onboarding'
   >
+  & PropsRenderFactories
   & InjectFace<SettingsRootInjected>
   & PropsLocale<'settings'>
   & PropsStore<ReturnType<typeof createSettingsShellStore>>

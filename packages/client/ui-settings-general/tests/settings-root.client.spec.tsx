@@ -131,6 +131,8 @@ function mount({
       return select(currentConnectionState)
     },
     useOnboardingSteps: select => select(steps),
+    useLauncherActions: select => select(false),
+    renderFactorySlot: () => null,
     useSections: (select) => {
       const [, force] = useState(0)
       useEffect(() => {

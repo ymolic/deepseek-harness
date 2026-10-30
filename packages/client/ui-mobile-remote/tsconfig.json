@@ -27,7 +27,7 @@
       "path": "../store"
     },
     {
-      "path": "../ui-settings-account"
+      "path": "../ui-settings/tsconfig.client.json"
     },
     {
       "path": "../ui-layout"

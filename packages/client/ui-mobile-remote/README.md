@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-More → Phone remote control provides separate Browser and DSH App pairing cards, side by side on wide screens and stacked on narrow screens. Each grants whole-instance access without selecting a Session, with independent consent, QR code, connection status, refresh and forget actions. Pairing or replacing one client does not disconnect the other. Closing the dialog does not revoke trust.
+Settings → Phone remote control in Web, or More → Phone remote control in Desktop, provides separate Browser and DSH App pairing cards, side by side on wide screens and stacked on narrow screens. Each grants whole-instance access without selecting a Session, with independent consent, QR code, connection status, refresh and forget actions. Pairing or replacing one client does not disconnect the other. Closing the dialog does not revoke trust.
 
 On a supported phone connection, the navigation status opens Remote connection. Reconnect retains the mounted chat and unsent draft. Forget this device requires confirmation and a new scan afterward; unconfirmed revocation stays visible with a retry action.
 
@@ -25,7 +25,7 @@ On a supported phone connection, the navigation status opens Remote connection. 
 <a id="use-this-package"></a>
 ## Use this package
 
-The Web application bundle includes the plugin for both Web and Desktop. Configure the [Host controller](../../api/mobile-controller/README.md), open More → Phone remote control, and acknowledge full-instance access in the intended card. Session execution permissions remain unchanged. For Browser, scan with the system Camera and open Safari. For DSH App, open the App's Scan to connect screen and use its in-app scanner, not the system Camera or Safari. A missing relay configuration appears in each card.
+The Web application bundle includes the plugin for both Web and Desktop. Configure the [Host controller](../../api/mobile-controller/README.md), open Settings → Phone remote control in Web or More → Phone remote control in Desktop, and acknowledge full-instance access in the intended card. Session execution permissions remain unchanged. For Browser, scan with the system Camera and open Safari. For DSH App, open the App's Scan to connect screen and use its in-app scanner, not the system Camera or Safari. A missing relay configuration appears in each card.
 
 Close hides the dialog while both clients' device trust continues across restarts. A paired card removes its QR. Refresh QR code requires a fresh acknowledgement and warns that it disconnects and replaces only that card's trust and enrollment; the other client remains unchanged. Forget this client cancels only that enrollment and access. Unconfirmed server removal stays visible in its card for retry. Enrollment expiry does not expire an already paired device.
 
@@ -46,7 +46,7 @@ The existing trusted transport may expose optional `remoteControl` callbacks and
 <a id="further-exploration"></a>
 ## Further Exploration
 
-The [account menu](../ui-settings-account/README.md) owns the launcher slot; the [Host controller](../../api/mobile-controller/README.md) owns authorization and phone execution.
+The [settings shell](../ui-settings-general/README.md#understand-the-implementation) owns the shared launcher action list; the [Host controller](../../api/mobile-controller/README.md) owns authorization and phone execution.
 
 <a id="model-experience"></a>
 ## Model Experience

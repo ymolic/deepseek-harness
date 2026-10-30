@@ -28,7 +28,7 @@ kind: "package-reference"
 <a id="use-this-package"></a>
 ## 使用此包
 
-Launcher 在标准菜单内开放根级列表 slot `settings.launcher.actions`。扩展项接收 `onDismiss`，使用菜单基础组件，在打开自己的界面前关闭所属菜单。[手机控制插件](../ui-mobile-remote/README.zh.md) 通过此 slot 注册入口。
+Launcher 在标准菜单内通过 `settings.launcher.actions` factory 渲染[共享设置操作列表](../ui-settings-general/README.zh.md#understand-the-implementation)。它不持有该列表的声明，因此卸载账号界面后，共享操作仍可由 Web 回退入口访问。
 
 客户端仅在具有 preload 桥接的 Desktop 内异步加载账号实现与引导图片。普通 Web 客户端不下载这两部分，保留标准设置入口和 API Key 引导，不显示账号登录和账号设置，也不订阅账号状态。Desktop 模块加载失败由 Loader 报告；加载期间卸载插件会阻止迟到的账号注册。
 

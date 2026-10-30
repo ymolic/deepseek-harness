@@ -6,10 +6,6 @@ export type { AccountMenuProps } from './AccountMenu.tsx'
 export type { AccountKey } from './locales.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
-  interface SlotMap {
-    /** Contributed More menu rows; each dismisses before opening its action. */
-    'settings.launcher.actions': { kind: 'list'; scope: 'root'; owner: { readonly onDismiss: () => void } }
-  }
   interface LocaleNamespaceMap { 'settings.account': AccountKey }
 }
 

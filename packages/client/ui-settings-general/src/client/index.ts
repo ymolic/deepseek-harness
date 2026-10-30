@@ -33,6 +33,7 @@ import type {
 import type { ShortcutCommandId } from '@deepseek-ai/dsh-client-shortcuts/client'
 import { createSettingsShellStore } from './shell-store.ts'
 import { SettingsRoot } from './SettingsRoot.tsx'
+import { SettingsLauncherActions } from './SettingsLauncherActions.tsx'
 import { DesktopUpdateBadge } from './DesktopUpdateIndicator.tsx'
 import type { DesktopUpdateBridge } from '../types.ts'
 import { DesktopUpdateSource } from './desktop-update-source.ts'
@@ -80,6 +81,10 @@ export const inject = ['slots', 'locale', 'connection', 'remote', 'remote.settin
  * @param ctx - client root context.
  */
 export function apply(ctx: ClientContext): void {
+  ctx.slots.registerFactory({
+    name: 'settings.launcher.actions', scope: 'root',
+    children: { 'settings.launcher.actions': { kind: 'list', scope: 'root' } },
+  }, SettingsLauncherActions)
   ctx.slots.inject('settings.general.item', () => ctx.slots.register({
     name: 'settings.general.item', id: 'developer-tools', order: 15, locale: NS,
     inject: (): DeveloperToolsRowInjected => ({
@@ -138,6 +143,10 @@ export function apply(ctx: ClientContext): void {
     openDesktopUpdate: () => { desktopUpdate.open() },
     reconnect: () => { connection.reconnect() },
     hooks: {
+      launcherActions: {
+        getSnapshot: () => ctx.slots.entries('settings.launcher.actions').length > 0,
+        subscribe: listener => ctx.slots.subscribe('settings.launcher.actions', listener),
+      },
       shortcuts: ctx.shortcuts.catalog,
       desktopUpdate: desktopUpdate.store,
       connectionState: connection.state,

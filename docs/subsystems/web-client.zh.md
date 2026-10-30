@@ -27,7 +27,7 @@ Web boot kernel 创建模块系统、预取 `immediately` entry、挂载 vendore
 
 ## Remote 通信
 
-[手机远控](../../packages/api/mobile-controller/README.zh.md)在明确的整实例授权后，通过加密出站通道连接现有 Web 客户端。Host 分发已注册的应用 API、Gateway 流和资源，而非任意网络目的地；Session 执行权限保持不变。[桌面菜单](../../packages/client/ui-mobile-remote/README.zh.md)负责临时二维码展示，并区分关闭弹窗与忘记受信任设备。有界的 Session 文本执行器仅保留兼容用途。
+[手机远控](../../packages/api/mobile-controller/README.zh.md)在明确的整实例授权后，通过加密出站通道连接现有 Web 客户端。Host 分发已注册的应用 API、Gateway 流和资源，而非任意网络目的地；Session 执行权限保持不变。[Web 与 Desktop 菜单](../../packages/client/ui-mobile-remote/README.zh.md)负责临时二维码展示，并区分关闭弹窗与忘记受信任设备。有界的 Session 文本执行器仅保留兼容用途。
 
 `MobilePairingTarget` 为 `'browser' | 'app'`。`MobileStartRequest` 携带明确的整实例授权及可选 `target`，或旧版浏览器 Session 选择。省略 `target` 时保留浏览器行为；未知 target 一律拒绝。`mobile.status(target?)` 和 `mobile.stop(target?)` 仅选择该授权槽。每端拥有独立的持久信任与传输，因此两端可同时在线而不替换彼此。`MobileStartResult` 返回临时配对材料及 `MobileDesktopState`；等待扫码时，桌面状态也可能含二维码 URL，不得记录日志。配对后状态报告连接可用性与中继撤销结果，不再暴露二维码。[类型声明](../../packages/api/mobile-controller/src/types.ts)维护这些字段。
 

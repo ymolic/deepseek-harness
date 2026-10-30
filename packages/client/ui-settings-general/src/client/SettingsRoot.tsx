@@ -17,7 +17,7 @@ import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from
 import { createPortal } from 'react-dom'
 import clsx from 'clsx'
 import {
-  ConnectionIndicator, Tooltip, useModalLayer,
+  ConnectionIndicator, Menu, Tooltip, useModalLayer,
   IconAgentPresetOutlineMedium, IconArchiveOutlineMedium, IconCloseOutlineRegular, IconDataOutlineMedium,
   IconPersonalizationOutlineMedium, IconSettingsOutlineMedium, IconUserOutlineMedium,
 } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -116,10 +116,13 @@ function SettingsPanel({ rows, renderSlot, activeId, onSelect, onClose }: PanelP
  */
 export function SettingsRoot(props: SettingsRootComponentProps) {
   const {
-    wide, reconnect, useConnectionState, useSections, useOnboardingSteps, useSessions, renderSlot, t,
+    wide, reconnect, useConnectionState, useSections, useOnboardingSteps, useSessions, renderSlot, renderFactorySlot, t,
+    useLauncherActions,
     useDesktopUpdate, openDesktopUpdate, useStore, actions, useShortcuts,
   } = props
   const { open, activeId } = useStore(state => state)
+  const hasLauncherActions = useLauncherActions(value => value)
+  const [menuOpen, setMenuOpen] = useState(false)
   const shortcut = useShortcuts(rows => rows.find(row => row.id === 'settings.open'))
   const { close, openSection } = actions
   const [requestedOnboarding, setRequestedOnboarding] = useState<string | undefined>()
@@ -216,6 +219,29 @@ export function SettingsRoot(props: SettingsRootComponentProps) {
     connectionIndicator = 'recovered'
   }
 
+  const trigger = <Tooltip disabled={open || menuOpen} label={t('trigger')} shortcutKeys={shortcut?.keys}>
+    <button
+      type="button"
+      className={clsx(css.trigger, !wide && css.rail)}
+      aria-label={t('trigger')}
+      aria-keyshortcuts={shortcut?.aria}
+      aria-haspopup={hasLauncherActions ? 'menu' : 'dialog'}
+      aria-expanded={hasLauncherActions ? menuOpen : open}
+      onClick={() => { if (hasLauncherActions) setMenuOpen(value => !value); else actions.open() }}
+    >
+      {renderSlot('settings.trigger', { wide })}
+    </button>
+  </Tooltip>
+  const fallback = hasLauncherActions
+    ? <Menu open={menuOpen} side="top" portal autoFocus className={css.launcher}
+      anchor={trigger} onClose={() => { setMenuOpen(false) }}
+      items={[{ id: 'settings', label: t('trigger'), icon: <IconSettingsOutlineMedium size={16} />,
+        ...(shortcut?.keys.length ? { shortcut: { keys: shortcut.keys, aria: shortcut.aria } } : {}) }]}
+      onSelect={() => { setMenuOpen(false); actions.open() }}>
+      {renderFactorySlot('settings.launcher.actions', { onDismiss: () => { setMenuOpen(false) } })}
+    </Menu>
+    : trigger
+
   return (
     <>
       <div className={clsx(css.triggerRow, !wide && css.railRow)}>
@@ -223,19 +249,7 @@ export function SettingsRoot(props: SettingsRootComponentProps) {
           wide, settingsOpen: open, openSettings: actions.open,
           ...(shortcut?.keys.length ? { settingsShortcut: { keys: shortcut.keys, aria: shortcut.aria } } : {}),
           openOnboarding: (id) => { close(); setRequestedOnboarding(id) },
-        }, { fallback: <Tooltip disabled={open} label={t('trigger')} shortcutKeys={shortcut?.keys}>
-          <button
-            type="button"
-            className={clsx(css.trigger, !wide && css.rail)}
-            aria-label={t('trigger')}
-            aria-keyshortcuts={shortcut?.aria}
-            aria-haspopup="dialog"
-            aria-expanded={open}
-            onClick={() => { actions.open() }}
-          >
-            {renderSlot('settings.trigger', { wide })}
-          </button>
-        </Tooltip> })}
+        }, { fallback })}
         <ConnectionIndicator
           state={wide && desktopUpdate.presentation?.phase !== 'installing' ? connectionIndicator : undefined}
           disconnectedLabel={t('connection.error')}

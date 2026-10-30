@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-「更多 → 手机远控」提供「浏览器」与「DSH App」两张独立配对卡片，宽屏并列、窄屏上下排列。每卡无需选择 Session（会话）即可授权整个实例，分别管理同意、二维码、连接状态、刷新与忘记。配对或替换一端不会断开另一端，关闭弹窗不会撤销信任。
+Web 的「设置 → 手机远控」或 Desktop 的「更多 → 手机远控」提供「浏览器」与「DSH App」两张独立配对卡片，宽屏并列、窄屏上下排列。每卡无需选择 Session（会话）即可授权整个实例，分别管理同意、二维码、连接状态、刷新与忘记。配对或替换一端不会断开另一端，关闭弹窗不会撤销信任。
 
 在受支持的手机连接中，点击导航状态可打开「远程连接」。重新连接保留已挂载的聊天和未发送草稿。「忘记此设备」需确认，之后须重新扫码；撤销未确认时保留可重试提示。
 
@@ -25,7 +25,7 @@ kind: "package-reference"
 <a id="use-this-package"></a>
 ## 使用此包
 
-Web 应用 bundle 为 Web 和 Desktop 提供此插件。配置 [Host 控制器](../../api/mobile-controller/README.zh.md)，打开「更多 → 手机远控」，在目标卡片确认整实例访问。会话执行权限保持不变。浏览器卡用系统相机扫码后在 Safari 打开；DSH App 卡需先打开 App 的「扫码连接」，使用 App 内扫码，不使用系统相机或 Safari。缺少中继配置时会在各卡中显示。
+Web 应用 bundle 为 Web 和 Desktop 提供此插件。配置 [Host 控制器](../../api/mobile-controller/README.zh.md)，在 Web 打开「设置 → 手机远控」，在 Desktop 打开「更多 → 手机远控」，在目标卡片确认整实例访问。会话执行权限保持不变。浏览器卡用系统相机扫码后在 Safari 打开；DSH App 卡需先打开 App 的「扫码连接」，使用 App 内扫码，不使用系统相机或 Safari。缺少中继配置时会在各卡中显示。
 
 关闭仅隐藏弹窗，两端设备信任跨重启保留。已配对卡移除二维码。「刷新二维码」需重新勾选同意，并提示会断开、替换本卡设备信任与配对，另一端不变。「忘记此端」仅取消本卡配对与访问。服务器删除未确认时在本卡持续显示可重试提示。配对票据过期不会使已配对设备过期。
 
@@ -46,7 +46,7 @@ Web 应用 bundle 为 Web 和 Desktop 提供此插件。配置 [Host 控制器](
 <a id="further-exploration"></a>
 ## 进一步探索
 
-[账号菜单](../ui-settings-account/README.zh.md) 拥有 launcher slot；[Host 控制器](../../api/mobile-controller/README.zh.md) 拥有授权与手机消息执行逻辑。
+[设置外壳](../ui-settings-general/README.zh.md#understand-the-implementation) 拥有共享入口操作列表；[Host 控制器](../../api/mobile-controller/README.zh.md) 拥有授权与手机消息执行逻辑。
 
 <a id="model-experience"></a>
 ## 模型体验

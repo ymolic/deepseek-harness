@@ -113,7 +113,8 @@ it('authorizes one real Session, streams its recorded reply once, recovers recei
   }
 })
 
-it.each([false, true])('desktop More enforces consent and owns the QR lifecycle (configured=%s)', async (configured) => {
+const launcherCases = [false, true].flatMap(configured => (['web', 'desktop'] as const).map(carrier => ({ configured, carrier })))
+it.each(launcherCases)('$carrier launcher enforces consent and owns the QR lifecycle (configured=$configured)', async ({ configured, carrier }) => {
   const root = await mkdtemp(join(tmpdir(), 'dsh-mobile-ui-'))
   const relay = await mobileRelayFixture()
   let scaffold: WebScaffold | undefined
@@ -129,14 +130,21 @@ it.each([false, true])('desktop More enforces consent and owns the QR lifecycle 
     const page = await browser.newPage({ viewport: { width: 1100, height: 800 }, locale: 'zh-CN' })
     const pageErrors: string[] = []
     page.on('pageerror', (error) => { pageErrors.push(error.message) })
-    await page.addInitScript((snapshot) => { Object.assign(globalThis, { dshDesktop: { protocolVersion: 1,
+    const desktopChunks: string[] = []
+    page.on('request', (request) => {
+      if (new URL(request.url()).pathname.endsWith('/client.desktop.js')) desktopChunks.push(request.url())
+    })
+    if (carrier === 'desktop') await page.addInitScript((snapshot) => { Object.assign(globalThis, { dshDesktop: { protocolVersion: 1,
       keyboard: { subscribe: () => () => {}, closeWindow: async () => {} },
       shortcuts: { get: async () => ({ ...snapshot, status: 'ready' }), subscribe: () => () => {},
         recording: async () => {}, edit: async () => ({ status: 'not-ready', snapshot }) },
     } }) }, initialShortcutConfig())
     await page.goto(scaffold.authenticatedUrl, { waitUntil: 'load' })
     await page.waitForSelector('[class*="frame"]', { timeout: 30000 })
-    await page.getByRole('button', { name: '账号菜单', exact: true }).click()
+    const launcher = page.getByRole('button', { name: carrier === 'desktop' ? '账号菜单' : '设置', exact: true })
+    expect(await page.evaluate(() => 'dshDesktop' in globalThis)).toBe(carrier === 'desktop')
+    await launcher.click()
+    expect(await page.getByRole('menuitem', { name: '手机远控', exact: true }).count()).toBe(1)
     await page.getByRole('menuitem', { name: '手机远控', exact: true }).click()
     const dialog = page.getByRole('dialog', { name: '手机远控' })
     await dialog.waitFor()
@@ -158,7 +166,7 @@ it.each([false, true])('desktop More enforces consent and owns the QR lifecycle 
       expect(relay.created).toBe(1)
       await page.keyboard.press('Escape')
       expect(scaffold.ctx.mobileController.status().phase).toBe('waiting')
-      await page.getByRole('button', { name: '账号菜单', exact: true }).click()
+      await launcher.click()
       await page.getByRole('menuitem', { name: '手机远控', exact: true }).click()
       await browserCard.getByRole('checkbox', { name: '我授权此浏览器完整操作当前 DSH' }).check()
       await browserCard.getByRole('button', { name: '刷新二维码' }).click()
@@ -181,6 +189,8 @@ it.each([false, true])('desktop More enforces consent and owns the QR lifecycle 
     await page.keyboard.press('Escape')
     expect(await page.getByRole('dialog', { name: '手机远控' }).count()).toBe(0)
     expect(pageErrors).toEqual([])
+    if (carrier === 'web') expect(desktopChunks).toEqual([])
+    else expect(desktopChunks).toHaveLength(1)
     await handle.dispose()
   } finally {
     try { await browser?.close() }

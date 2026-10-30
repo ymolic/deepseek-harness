@@ -8,6 +8,8 @@ Slots 是 Web Client 的类型化 React 组合系统。[`dsh-client-ui-slots`](.
 
 `plugins.bundle.config` 以 npm 包名为 key，提供 Bundle 详情配置。`plugins.bundle.activation` 在用户显式启用后渲染可选引导，由拥有者提供关闭引导和打开该 Bundle 详情的回调。`conversation.input.activity` 提供模型选择器与发送按钮之间的单个活动控件，可展开工具栏并在卸载时释放展开状态。
 
+设置领域声明 root 作用域的 list `settings.launcher.actions` 及同名渲染 factory。[设置外壳](../../packages/client/ui-settings-general/README.zh.md#understand-the-implementation) 持有它们的运行声明；Web 和 Desktop 入口调用 factory 时传入 `onDismiss`，贡献方在打开自己的界面前关闭当前菜单。
+
 插件目录声明 `plugins.add.actions`，它是 root 作用域的 list，在添加插件菜单的安装项之后提供 `MenuItemButton` 行。owner 提供 `onDismiss()`，用于开始动作前关闭菜单。该 slot 遵循所属插件页面声明的生命周期。
 
 root 作用域的 list `sidebar.panellist.actions`、`conversation.session.header.views.actions` 和 `sidebar.right.tab.guide.actions` 提供面板行、View 标签和右侧栏引导卡片之后“更多”菜单的菜单行。区域只在其 list 有注册项时画“更多”按钮与菜单，并传入可自定义的入口及其 Pin 状态、`onOpen`、`onPinnedChange` 与 `onDismiss`。面板和 View 入口还通过可选的 `active` 状态标识当前选中项，该状态独立于 Pin 状态。各区域在内存中维护已收起的入口 id；[`ui-entry-customization`](../../packages/client/ui-entry-customization/README.zh.md) 注册随产品提供的菜单行。
