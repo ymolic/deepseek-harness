@@ -241,7 +241,7 @@ parent.document.documentElement.dataset.testStartupFailure = parent.document.que
     expect(await page.locator('html').getAttribute('data-test-startup-failure')).toBe('failed')
     await page.locator('.full-content[data-state="ready"]').waitFor()
     expect(await page.locator('iframe.full-frame').count()).toBe(1)
-    expect(await page.locator('.full-loading').isVisible()).toBe(false)
+    await page.locator('.full-loading').waitFor({ state: 'hidden' })
     expect(await page.locator('.full-bar [role="status"]').textContent()).toBe('已连接')
     expect(connections).toBe(1)
     expect(await scaffold.ctx.credentials.readRecord(credentialKey('mobile-controller', 'trusted-device'))).toEqual(trust)
@@ -468,8 +468,10 @@ it.runIf(relayRoot).each([
     await page.locator('.full-loading').getByRole('button', { name: '重新加载', exact: true }).click()
     await page.locator('iframe.full-frame').waitFor()
     expect(await page.locator('.full-content').getAttribute('data-state')).toBe('loading')
-    expect(await page.locator('.full-loading .full-spinner').isVisible()).toBe(true)
-    expect(await page.locator('.full-bar').innerText()).toContain('正在加载应用')
+    await page.locator('.full-loading').getByRole('img', { name: 'DSH', exact: true }).waitFor()
+    expect(await page.locator('.full-loading .full-progress').isVisible()).toBe(true)
+    expect(await page.locator('.full-loading .full-steps i.active').count()).toBe(1)
+    expect(await page.locator('.full-loading > p').innerText()).toBe('已完成安全认证')
     await saveFailureShot(page, `mobile-full-client-loading-${name.toLowerCase()}`)
     const client = page.frameLocator('iframe.full-frame')
     try {
@@ -479,7 +481,7 @@ it.runIf(relayRoot).each([
         frames: await Promise.all(page.frames().map(async frame => frame.locator('body').innerText().then(text => text.slice(0, 600)).catch(() => 'unavailable'))), errors, diagnostics, missingResources, traffic }))
     }
     expect(await page.locator('.full-content').getAttribute('data-state')).toBe('ready')
-    expect(await page.locator('.full-loading').isVisible()).toBe(false)
+    await page.locator('.full-loading').waitFor({ state: 'hidden' })
     await client.getByRole('button', { name: '远程连接: 已连接', exact: true }).waitFor()
     expect(await page.locator('.full-bar').isVisible()).toBe(false)
     console.info(`${name} full-client cold boot: ${Math.round(performance.now() - startedAt)}ms`)
@@ -552,15 +554,21 @@ it.runIf(relayRoot).each([
         await reopen.click()
         await drawer.waitFor()
         await drawer.evaluate(async (element) => {
-          await Promise.all(element.getAnimations({ subtree: true })
+          const column = element.closest('[data-slot="sidebar"]')!.parentElement!
+          await Promise.all(column.getAnimations({ subtree: true })
             .filter(animation => animation.effect?.getComputedTiming().iterations !== Infinity)
             .map(animation => animation.finished))
         })
-        expect(await drawer.evaluate((element) => {
+        const drawerGeometry = await drawer.evaluate((element) => {
           const box = element.getBoundingClientRect()
-          return box.left === 0 && box.width <= window.innerWidth - 48
-            && document.querySelector('[data-slot="main"]')!.parentElement!.getBoundingClientRect().width === window.innerWidth
-        })).toBe(true)
+          const column = element.closest('[data-slot="sidebar"]')!.parentElement!.getBoundingClientRect()
+          const main = document.querySelector('[data-slot="main"]')!.parentElement!.getBoundingClientRect()
+          return { left: box.left, width: box.width, columnLeft: column.left, columnWidth: column.width,
+            viewport: window.innerWidth, mainWidth: main.width }
+        })
+        expect(drawerGeometry.left, JSON.stringify(drawerGeometry)).toBe(0)
+        expect(drawerGeometry.width, JSON.stringify(drawerGeometry)).toBeLessThanOrEqual(drawerGeometry.viewport - 48)
+        expect(drawerGeometry.mainWidth, JSON.stringify(drawerGeometry)).toBe(drawerGeometry.viewport)
         await saveFailureShot(page, `mobile-drawer-${name.toLowerCase()}-${width}-${theme}`)
         await drawer.getByRole('button', { name: '设置', exact: true }).click()
         const settings = client.getByRole('dialog', { name: '设置', exact: true })

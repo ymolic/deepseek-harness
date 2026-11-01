@@ -236,9 +236,12 @@ it('overlays the conversation and closes after navigation without losing its sid
       const opener = page.getByRole('button', { name: 'Open sidebar', exact: true })
       await opener.waitFor()
       const frame = page.locator('[data-sidebar-drawer]')
-      expect(await page.locator('[data-shell-leading]').getByRole('button').count()).toBe(1)
+      const navigation = page.locator('[data-shell-leading]')
+      expect(await navigation.getByRole('button').count()).toBe(2)
+      await navigation.getByRole('button', { name: 'New session', exact: true }).waitFor()
+      expect(await navigation.evaluate(el => el.getBoundingClientRect().height)).toBe(44)
       expect(await frame.evaluate(el => getComputedStyle(el).getPropertyValue('--dsh-frame-leading-clearance').trim()))
-        .toBe('48px')
+        .toBe('0px')
       await expect.poll(() => frame.getAttribute('data-sidebar-collapsed')).toBe('true')
       const sidebar = page.locator('[data-slot="sidebar"]')
       const original = await sidebar.elementHandle()
@@ -280,7 +283,7 @@ it('overlays the conversation and closes after navigation without losing its sid
         label.selectNodeContents(tab)
         return label.getBoundingClientRect().left - tab.closest('header')!.getBoundingClientRect().left
       })
-      expect(await tabInset()).toBeCloseTo(20, 1)
+      expect(await tabInset()).toBeCloseTo(10, 1)
       // Restore CSS-probe markers in the same synchronous task, before rendering.
       const desktopInsets = await chatTab.evaluate((tab) => {
         const root = document.documentElement
@@ -389,7 +392,7 @@ it('overlays the conversation and closes after navigation without losing its sid
       await page.evaluate(() => { document.documentElement.dataset.platform = 'darwin' })
       await expect.poll(() => main.evaluate(el => getComputedStyle(el).paddingTop)).toBe('0px')
       await page.evaluate(() => { delete document.documentElement.dataset.platform })
-      await expect.poll(() => main.evaluate(el => getComputedStyle(el).paddingTop)).toBe('48px')
+      await expect.poll(() => main.evaluate(el => getComputedStyle(el).paddingTop)).toBe('0px')
 
       await page.setViewportSize({ width: 390, height: 844 })
       await drawer.waitFor({ state: 'hidden' })
@@ -430,14 +433,14 @@ it('overlays the conversation and closes after navigation without losing its sid
         window.visualViewport!.dispatchEvent(new Event('scroll'))
       })
       await expect.poll(() => root.boundingBox()).toEqual({ x: 0, y: 0, width: 390, height: 844 })
-      await expect.poll(async () => (await main.boundingBox())?.height).toBe(844)
+      await expect.poll(() => main.boundingBox()).toEqual({ x: 0, y: 44, width: 390, height: 800 })
       await opener.tap()
       await expect.poll(async () => (await drawer.boundingBox())?.height).toBe(844)
       const searchWithKeyboard = drawer.getByPlaceholder('Search session names')
       await drawer.getByRole('button', { name: 'Search sessions', exact: true }).tap()
       await searchWithKeyboard.tap()
       await searchWithKeyboard.fill('retained search')
-      await drawer.getByRole('button', { name: 'Account menu', exact: true }).tap()
+      await drawer.getByRole('button', { name: 'Settings', exact: true }).tap()
       await page.getByRole('menuitem', { name: 'Settings', exact: true }).tap()
       const settings = page.getByRole('dialog', { name: 'Settings', exact: true })
       await settings.waitFor()
@@ -514,7 +517,7 @@ it('overlays the conversation and closes after navigation without losing its sid
         await drawer.waitFor({ state: 'hidden' })
         await opener.tap()
         await expect.poll(async () => (await drawer.boundingBox())?.width).toBe(280)
-        expect(await main.boundingBox()).toEqual({ x: 0, y: 0, width: 669, height: 951 })
+        expect(await main.boundingBox()).toEqual({ x: 0, y: 44, width: 669, height: 907 })
       } finally {
         await posture.detach()
       }
@@ -583,10 +586,10 @@ it('overlays the conversation and closes after navigation without losing its sid
         '768px: 56px rail; main width 712px; drawer focus transfers to the rail toggle',
         'breakpoint motion: collapsed rail hides immediately and returns compact without crossfades; expanded sidebar and explicit toggles retain their slides',
         '767px: hidden drawer; main width 767px; no page overflow',
-        'global panels: browser top inset 48px; macOS keeps its existing clearance',
+        'global panels: browser content starts below the 44px navigation row without extra top padding; macOS keeps its existing clearance',
         'tooltips: sidebar and workspace controls escape the drawer and fit the viewport',
         'search input: 16px on touch; 13px with a fine pointer',
-        'simulated keyboard: homepage and drawer retain 844px layout height without following the 360px visual viewport; Settings stays within the viewport',
+        'simulated keyboard: shell and drawer retain 844px layout height, with 800px content below navigation, without following the 360px visual viewport; Settings stays within the viewport',
         'keyboard close: layout height stays 844px; sidebar search retained; Settings close remains reachable',
         'shell coverage: drawer backing and mask cover 844px without synthetic safe-area insets',
         'rotation: 844x390 then 390x844 restores shell height and sidebar breakpoint',
@@ -594,8 +597,8 @@ it('overlays the conversation and closes after navigation without losing its sid
         'fold transitions: sidebar controls follow the divider in both directions; reduced motion changes width without animation',
         'drawer mask: opacity transitions from 0 to 1 on open and 1 to 0 on close',
         'reduced motion: drawer and mask settle without transitions',
-        'Web header: only the sidebar opener remains, with 48px leading clearance',
-        'below 768px: plugin and automation pages use 20px insets; Web view tabs align at 20px, while Desktop and wider Web tabs retain 28px',
+        'Web header: sidebar opener and New session share a 44px navigation row, with zero leading clearance in the content',
+        'below 768px: plugin and automation pages use 20px insets; phone Web view tabs align at 10px, while Desktop and wider Web tabs retain 28px',
         'touch selected Session: More remains visible; update time is hidden; pinned rows offer Unpin before More with Workspace action spacing',
         'touch Workspace: actions appear only while expanded, including after folding the focused row',
         'fine pointer: folded Workspace actions remain available on hover',

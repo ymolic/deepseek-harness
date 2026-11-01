@@ -4,7 +4,7 @@ import { randomBytes } from 'node:crypto'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { chromium, webkit, type Browser, type Page, type WebSocketRoute } from 'playwright'
+import { chromium, webkit, type Browser, type JSHandle, type Page, type WebSocketRoute } from 'playwright'
 import { expect, it, vi } from 'vitest'
 import { credentialKey, credentialRef } from '@deepseek-ai/dsh-credentials'
 import type {} from '@deepseek-ai/dsh-api-mobile-controller'
@@ -30,24 +30,44 @@ interface Bridge {
   fetch(input: string, init?: RequestInit): Promise<Response>
 }
 
-async function foregroundCycle(page: Page, elapsedMs = 0): Promise<void> {
-  await page.evaluate((elapsed) => {
+interface FollowObservation {
+  snapshots: number
+  restore(): void
+}
+
+async function foregroundCycle(page: Page, bfcacheOrder?: 'pageshow-first' | 'visibility-first'): Promise<void> {
+  const lifecycle = await page.evaluateHandle(() => {
     const previous = Object.getOwnPropertyDescriptor(document, 'visibilityState')
-    const now = Date.now
-    let clock = now()
-    try {
-      Date.now = () => clock
-      Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' })
-      document.dispatchEvent(new Event('visibilitychange'))
-      clock += elapsed
-      Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' })
-      document.dispatchEvent(new Event('visibilitychange'))
-    } finally {
-      Date.now = now
-      if (previous) Object.defineProperty(document, 'visibilityState', previous)
-      else Reflect.deleteProperty(document, 'visibilityState')
+    return {
+      hide(bfcache: boolean) {
+        Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' })
+        document.dispatchEvent(new Event('visibilitychange'))
+        if (bfcache) window.dispatchEvent(new PageTransitionEvent('pagehide', { persisted: true }))
+      },
+      show(event: 'pageshow' | 'visibilitychange') {
+        Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' })
+        if (event === 'pageshow') window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true }))
+        else document.dispatchEvent(new Event('visibilitychange'))
+      },
+      restore() {
+        if (previous) Object.defineProperty(document, 'visibilityState', previous)
+        else Reflect.deleteProperty(document, 'visibilityState')
+      },
     }
-  }, elapsedMs)
+  })
+  try {
+    await lifecycle.evaluate((events, bfcache) => { events.hide(bfcache) }, bfcacheOrder !== undefined)
+    const first = bfcacheOrder === 'pageshow-first' ? 'pageshow' : 'visibilitychange'
+    await lifecycle.evaluate((events, event: 'pageshow' | 'visibilitychange') => { events.show(event) }, first)
+    if (bfcacheOrder !== undefined) {
+      await lifecycle.evaluate((events, event: 'pageshow' | 'visibilitychange') => { events.show(event) },
+        first === 'pageshow' ? 'visibilitychange' : 'pageshow')
+      await lifecycle.evaluate((events) => { events.show('visibilitychange') })
+    }
+  } finally {
+    try { await lifecycle.evaluate((events) => { events.restore() }) }
+    finally { await lifecycle.dispose() }
+  }
 }
 
 it.runIf(relayRoot).each([
@@ -59,6 +79,7 @@ it.runIf(relayRoot).each([
   let scaffold: WebScaffold | undefined
   let browser: Browser | undefined
   let page: Page | undefined
+  let followObservation: JSHandle<FollowObservation> | undefined
   let failure: unknown
   let stage = 'boot'
   const pageErrors: string[] = []
@@ -68,6 +89,7 @@ it.runIf(relayRoot).each([
   let hostHeads = 0
   const controlStreams: { baselines: number; updates: number; closed: boolean }[] = []
   const partials: string[] = []
+  let mutations = 0
   const reached = Array.from({ length: 3 }, () => Promise.withResolvers<string>())
   const releases = Array.from({ length: 3 }, () => Promise.withResolvers<undefined>())
   try {
@@ -115,6 +137,17 @@ it.runIf(relayRoot).each([
       })()
     })
     restoreStreamObserver = () => { observer.mockRestore() }
+    scaffold.ctx.effect(() => scaffold!.ctx.connection.fetch.register({
+      path: '/api/mobile-test.stream-mutate', methods: ['POST'], requestBody: 'buffered',
+      fetch: (request) => {
+        mutations++
+        return new Promise<Response>((_resolve, reject) => {
+          const abort = (): void => { reject(new Error('Synthetic mutation outcome unknown')) }
+          if (request.signal.aborted) abort()
+          else request.signal.addEventListener('abort', abort, { once: true })
+        })
+      },
+    }), 'mobile stream: uncertain mutation')
     scaffold.ctx.on('llm/stream', async function* (_options, next) {
       let text = '', index = 0
       for await (const chunk of next()) {
@@ -138,7 +171,11 @@ it.runIf(relayRoot).each([
     page = await browser.newPage({ viewport: { width: 390, height: 844 }, locale: 'zh-CN', isMobile: true, hasTouch: true })
     page.on('pageerror', error => pageErrors.push(error.message))
     page.on('crash', () => { console.info(`${name} mobile stream renderer crashed during ${stage}`) })
-    await page.routeWebSocket('**/ws/mobile?packetMux=v1', (client) => {
+    const relaySocketOrigin = relay.origin.replace(/^http/, 'ws')
+    const packetGzip = await page.evaluate(() => typeof DecompressionStream === 'function')
+    const mobileSocket = `${relaySocketOrigin}/ws/mobile?packetMux=v1${packetGzip ? '&packetGzip=v1' : ''}`
+    await page.routeWebSocket(url => url.origin === relaySocketOrigin && url.pathname === '/ws/mobile', (client) => {
+      expect(client.url()).toBe(mobileSocket)
       const server = client.connectToServer()
       const socket = { client, server, hold: false, held: 0, stalled: false }
       sockets.push(socket)
@@ -152,6 +189,7 @@ it.runIf(relayRoot).each([
     const client = page.frameLocator('iframe.full-frame')
     const editor = client.locator('[data-composer-input][contenteditable="true"]').first()
     await client.locator('[data-composer-input]').first().waitFor({ timeout: 90000 })
+    await expect.poll(() => page!.locator('.full-diagnostic').textContent()).toContain(`binary/mux${packetGzip ? '/gzip' : ''}`)
     stage = 'workspace selection'
     await client.getByRole('textbox', { name: '选择工作区' }).click()
     const directory = client.getByRole('dialog', { name: '选择工作区目录' })
@@ -161,6 +199,22 @@ it.runIf(relayRoot).each([
     await directory.getByRole('button', { name: '打开', exact: true }).click()
     await editor.waitFor({ timeout: 30000 })
     const frame = await page.locator('iframe.full-frame').elementHandle()
+    followObservation = await page.evaluateHandle(() => {
+      const transport = Reflect.get(globalThis, '__DSH_MOBILE_BRIDGE__') as {
+        openStream: (endpoint: string, payload: unknown, signal: AbortSignal,
+          uplink?: AsyncIterable<unknown>) => AsyncIterable<unknown>
+      }
+      const openStream = transport.openStream
+      const observation: FollowObservation = { snapshots: 0, restore() { transport.openStream = openStream } }
+      transport.openStream = async function* (...args) {
+        for await (const value of openStream(...args)) {
+          yield value
+          if (args[0] === 'session/follow' && value !== null && typeof value === 'object'
+            && 'type' in value && value.type === 'snapshot') observation.snapshots++
+        }
+      }
+      return observation
+    })
     const initialSockets = sockets.length
     const prompts = fixtureUserPrompts(await readFile(replayFixture, 'utf8'))
     const settled = scaffold.whenTurnSettled()
@@ -174,54 +228,73 @@ it.runIf(relayRoot).each([
     await editor.fill('UNSENT_STREAM_RECOVERY_DRAFT')
     const selected = await client.locator('body').evaluate(() => localStorage.getItem('dsh.sessions.current'))
 
-    const first = sockets.at(-1)!
+    expect(initialSockets).toBe(1)
     stage = 'healthy short foreground return'
     const modelRequests = modelCatalog.mock.calls.length
+    const headsBeforeForeground = hostHeads
     expect(modelRequests).toBeGreaterThan(0)
+    await expect.poll(() => controlStreams.at(-1)?.baselines).toBe(1)
+    const previousControl = controlStreams.at(-1)!
+    const followSnapshots = await followObservation.evaluate(value => value.snapshots)
     await foregroundCycle(page)
-    await expect.poll(() => hostHeads, { timeout: 10000 }).toBe(1)
+    await expect.poll(() => sockets.length, { timeout: 20000 }).toBe(initialSockets + 1)
+    await client.getByRole('button', { name: '远程连接: 已连接', exact: true }).waitFor()
     await streaming.getByText(await reached[0]!.promise, { exact: true }).waitFor()
-    expect(sockets).toHaveLength(initialSockets)
-    expect(modelCatalog.mock.calls).toHaveLength(modelRequests)
+    await expect.poll(() => previousControl.closed).toBe(true)
+    await expect.poll(() => controlStreams.at(-1) !== previousControl && controlStreams.at(-1)?.baselines === 1).toBe(true)
+    await expect.poll(() => followObservation!.evaluate(value => value.snapshots), { timeout: 10000 }).toBeGreaterThan(followSnapshots)
+    expect(hostHeads).toBe(headsBeforeForeground)
+    expect(sockets).toHaveLength(initialSockets + 1)
     expect(await editor.innerText()).toBe('UNSENT_STREAM_RECOVERY_DRAFT')
     expect(await page.locator('iframe.full-frame').evaluate((element, previous) => element === previous, frame)).toBe(true)
+    const first = sockets.at(-1)!
+    stage = 'pending mutation before acknowledgement hold'
+    const uncertainMutation = page.evaluate(async () => {
+      const bridge = Reflect.get(window, '__DSH_MOBILE_BRIDGE__') as Bridge
+      try { await bridge.fetch('/api/mobile-test.stream-mutate', { method: 'POST', body: '{"action":"once"}' }); return false }
+      catch (error) { return error instanceof Error && error.message.includes('not retried') }
+    })
+    void uncertainMutation.catch(() => undefined)
+    await expect.poll(() => mutations, { timeout: 10000 }).toBe(1)
     // Withhold all outbound ACKs: later deltas must arrive through the shared window before any are released.
     first.hold = true
     stage = 'withheld acknowledgement pipeline'
     for (let index = 1; index < reached.length; index++) {
       releases[index - 1]!.resolve(undefined)
       await expect.poll(() => partials.length, { timeout: 30000 }).toBe(index + 1)
-      await streaming.getByText(await reached[index]!.promise, { exact: true }).waitFor()
+      await streaming.getByText(await reached[index]!.promise, { exact: true }).waitFor({ timeout: 10000 })
     }
     await expect.poll(() => first.held).toBeGreaterThan(0)
     const partial = await reached[2]!.promise
     stage = 'stale OPEN foreground recovery'
     first.stalled = true
     await client.getByRole('button', { name: '远程连接: 已连接', exact: true }).waitFor()
-    const beforeInterrupted = first.held
-    const interrupted = page.evaluate(async () => {
-      const bridge = Reflect.get(window, '__DSH_MOBILE_BRIDGE__') as Bridge
-      try { await bridge.fetch('/api/session/modelCatalog', { method: 'POST', body: '{}' }); return false }
-      catch (error) { return error instanceof Error && error.message.includes('not retried') }
-    })
-    void interrupted.catch(() => undefined)
-    await expect.poll(() => first.held).toBeGreaterThan(beforeInterrupted)
     // Model lifecycle events with a stale OPEN transport; this does not suspend the browser process.
     await foregroundCycle(page)
-    await expect.poll(() => sockets.length, { timeout: 20000 }).toBe(initialSockets + 1)
-    expect(await interrupted).toBe(true)
+    await expect.poll(() => sockets.length, { timeout: 20000 }).toBe(initialSockets + 2)
+    expect(await uncertainMutation).toBe(true)
     await client.getByRole('button', { name: '远程连接: 已连接', exact: true }).waitFor()
     await streaming.getByText(partial, { exact: true }).waitFor()
+    expect(mutations).toBe(1)
     expect(await editor.innerText()).toBe('UNSENT_STREAM_RECOVERY_DRAFT')
     expect(await page.locator('iframe.full-frame').evaluate((element, previous) => element === previous, frame)).toBe(true)
-    stage = 'long absence foreground recovery'
-    const headsBeforeLong = hostHeads
-    await foregroundCycle(page, 60000)
-    await expect.poll(() => sockets.length, { timeout: 20000 }).toBe(initialSockets + 2)
-    await client.getByRole('button', { name: '远程连接: 已连接', exact: true }).waitFor()
-    expect(hostHeads).toBe(headsBeforeLong)
-    expect(await editor.innerText()).toBe('UNSENT_STREAM_RECOVERY_DRAFT')
-    expect(await page.locator('iframe.full-frame').evaluate((element, previous) => element === previous, frame)).toBe(true)
+    for (const order of ['pageshow-first', 'visibility-first'] as const) {
+      stage = `BFCache recovery: ${order}`
+      const beforeCycle = sockets.length
+      const beforeControl = controlStreams.at(-1)!
+      await foregroundCycle(page, order)
+      await expect.poll(() => sockets.length, { timeout: 20000 }).toBe(beforeCycle + 1)
+      await client.getByRole('button', { name: '远程连接: 已连接', exact: true }).waitFor()
+      await streaming.getByText(partial, { exact: true }).waitFor()
+      await expect.poll(() => beforeControl.closed).toBe(true)
+      await expect.poll(() => controlStreams.at(-1) !== beforeControl && controlStreams.at(-1)?.baselines === 1).toBe(true)
+      expect(sockets).toHaveLength(beforeCycle + 1)
+      expect(hostHeads).toBe(headsBeforeForeground)
+      expect(mutations).toBe(1)
+      expect(await editor.innerText()).toBe('UNSENT_STREAM_RECOVERY_DRAFT')
+      expect(await page.locator('iframe.full-frame').evaluate((element, previous) => element === previous, frame)).toBe(true)
+    }
+    expect(hostHeads).toBe(headsBeforeForeground)
     const foregroundSockets = sockets.length
     stage = 'phone socket recovery'
     const foreground = sockets.at(-1)!
@@ -251,6 +324,7 @@ it.runIf(relayRoot).each([
     await client.getByRole('button', { name: '远程连接: 已连接', exact: true }).waitFor()
     await streaming.getByText(partial, { exact: true }).waitFor()
     expect(sockets).toHaveLength(foregroundSockets + 1)
+    expect(mutations).toBe(1)
     releases[2]!.resolve(undefined)
     stage = 'settlement'
     const sessionId = await settled
@@ -301,6 +375,11 @@ it.runIf(relayRoot).each([
     restoreRecoveryObservers()
     for (const release of releases) release.resolve(undefined)
     for (const cleanup of [async () => {
+      if (followObservation !== undefined) {
+        try { await followObservation.evaluate((value) => { value.restore() }) }
+        finally { await followObservation.dispose() }
+      }
+    }, async () => {
       if (scaffold && !(await scaffold.ctx.mobileController.stop()).relayRevoked) throw new Error('Temporary trust revocation unconfirmed')
     }, () => browser?.close(), () => scaffold?.close(), () => relay?.close(), () => rm(root, { recursive: true, force: true })]) {
       try { await cleanup() }

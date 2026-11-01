@@ -77,7 +77,7 @@ async function fullClientReady(page: Page): Promise<void> {
   await client.getByRole('button', { name: '远程连接: 已连接', exact: true }).waitFor()
   await expect.poll(() => page.locator('.full-content').getAttribute('data-state')).toBe('ready')
   expect(await page.locator('iframe.full-frame').count()).toBe(1)
-  expect(await page.locator('.full-loading').isVisible()).toBe(false)
+  await page.locator('.full-loading').waitFor({ state: 'hidden' })
   expect(new URL(page.url()).hash === '').toBe(true)
 }
 
@@ -306,10 +306,14 @@ it.runIf(relayRoot)('keeps Browser and App fully mounted with independent rooms,
                 const rect = button.getBoundingClientRect()
                 return rect.left >= 0 && rect.right <= innerWidth && rect.height >= 44
               }),
+            tabsFit: Array.from(document.querySelectorAll('[data-conversation-tabs] [role="tab"]')).every((tab) => {
+              const rect = tab.getBoundingClientRect()
+              return rect.height === 44 && rect.left >= 0 && rect.right <= innerWidth
+            }),
             noOverflow: document.documentElement.scrollWidth <= innerWidth }
         })
-        expect(geometry).toEqual({ titleHeight: 44, shellHeight: 44, tabsHeight: 44,
-          rowsOrdered: true, controlsFit: true, noOverflow: true })
+        expect(geometry).toEqual({ titleHeight: 44, shellHeight: 44, tabsHeight: 34,
+          rowsOrdered: true, controlsFit: true, tabsFit: true, noOverflow: true })
         await titleRow.getByRole('button', { name: '更多操作', exact: true }).click()
         await headerClient.getByRole('menuitem', { name: '下载 Session 日志', exact: true }).waitFor()
         await pages.app.keyboard.press('Escape')
