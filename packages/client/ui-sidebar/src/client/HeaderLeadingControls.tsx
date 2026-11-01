@@ -16,10 +16,10 @@ export type HeaderLeadingControlsProps =
 
 /**
  * Sidebar-open and New Session controls in the frame's window-chrome seat.
- * The frame places these controls in phone navigation or beside macOS traffic
- * lights when the sidebar is hidden. Its modal drawer covers this seat while open.
+ * The frame places these controls in browser navigation or native window chrome.
+ * Its modal drawer blocks this seat while open.
  * @param props - Injected sidebar actions, the global access Hook, and the sidebar locale seat.
- * @returns the sidebar toggle, plus the New Session control while access allows `session/create`.
+ * @returns the sidebar toggle, plus New Session while access allows `session/create`.
  */
 export function HeaderLeadingControls({
   toggleSidebar, startSession, trackEntryClick, useRemoteAccess, useShortcuts, t,
@@ -32,6 +32,7 @@ export function HeaderLeadingControls({
     <div className={css.controls}>
       <Tooltip label={t('toggle.open')} shortcutKeys={shortcut?.keys} delayMs={500}>
         <button
+          data-sidebar-opener
           type="button"
           className={css.iconButton}
           aria-label={t('toggle.open')}

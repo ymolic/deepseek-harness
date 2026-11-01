@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-Settings → Phone remote control in Web, or More → Phone remote control in Desktop, provides separate Browser and DSH App pairing cards, side by side on wide screens and stacked on narrow screens. Each grants whole-instance access without selecting a Session, with independent consent, QR code, connection status, refresh and forget actions. Pairing or replacing one client does not disconnect the other. Closing the dialog does not revoke trust.
+Web Settings → Phone remote control and Desktop More → Phone remote control provide separate Browser and DSH App pairing cards, side by side on wide screens and stacked on narrow screens. Each grants whole-instance access without Session selection, with independent consent, QR, status, refresh and forget actions. Pairing or replacing one client leaves the other connected. Closing preserves trust.
 
 On a supported phone connection, the navigation status opens Remote connection. Reconnect retains the mounted chat and unsent draft. Forget this device requires confirmation and a new scan afterward; unconfirmed revocation stays visible with a retry action.
 

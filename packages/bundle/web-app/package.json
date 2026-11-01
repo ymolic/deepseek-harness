@@ -193,7 +193,9 @@
     "@deepseek-ai/dsh-api-mobile-controller": "workspace:*",
     "@deepseek-ai/dsh-client-ui-mobile-remote": "workspace:*",
     "@deepseek-ai/dsh-deliverable-file-references": "workspace:*",
-    "@deepseek-ai/dsh-client-ui-file-drag": "workspace:*"
+    "@deepseek-ai/dsh-client-ui-file-drag": "workspace:*",
+    "@deepseek-ai/dsh-client-ui-context-menu": "workspace:*",
+    "@deepseek-ai/dsh-client-ui-file-actions": "workspace:*"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "workspace:~",
