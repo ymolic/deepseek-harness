@@ -115,9 +115,6 @@
     },
     {
       "path": "../../credentials/deepseek-account"
-    },
-    {
-      "path": "../mobile-controller"
     }
   ]
 }

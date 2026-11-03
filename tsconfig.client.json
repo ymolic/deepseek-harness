@@ -56,7 +56,6 @@
     "packages/client/*/tests/**/*.host.ts"
   ],
   "references": [
-    { "path": "./packages/client/ui-mobile-remote" },
     { "path": "./packages/experimental/client-ui-action-cards" },
     { "path": "./packages/experimental/client-ui-creation-recommendations" },
     { "path": "./packages/experimental/client-ui-plugin-recommendations" },

@@ -28,11 +28,6 @@
     // not declaration path aliases, keep each package/vendor source compiled
     // under its own tsconfig boundary.
     "paths": {
-      "@deepseek-ai/dsh-client-ui-mobile-remote": ["./packages/client/ui-mobile-remote/src/index.ts"],
-      "@deepseek-ai/dsh-client-ui-mobile-remote/client": ["./packages/client/ui-mobile-remote/src/client/index.ts"],
-      "@deepseek-ai/dsh-api-mobile-controller": ["./packages/api/mobile-controller/src/index.ts"],
-      "@deepseek-ai/dsh-api-mobile-controller/types": ["./packages/api/mobile-controller/src/types.ts"],
-      "@deepseek-ai/dsh-api-mobile-controller/src/*": ["./packages/api/mobile-controller/src/*"],
       "@deepseek-ai/dsh-client-ui-file-actions": ["./packages/client/ui-file-actions/src/index.ts"],
       "@deepseek-ai/dsh-client-ui-file-actions/client": ["./packages/client/ui-file-actions/src/client/index.ts"],
       "@deepseek-ai/dsh-client-ui-file-actions/types": ["./packages/client/ui-file-actions/src/types.ts"],

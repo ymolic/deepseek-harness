@@ -190,8 +190,6 @@
     "@deepseek-ai/dsh-host-product-telemetry-otel": "workspace:*",
     "@deepseek-ai/dsh-client-ui-settings-session-log": "workspace:*",
     "@deepseek-ai/dsh-harness-dev-context": "workspace:*",
-    "@deepseek-ai/dsh-api-mobile-controller": "workspace:*",
-    "@deepseek-ai/dsh-client-ui-mobile-remote": "workspace:*",
     "@deepseek-ai/dsh-deliverable-file-references": "workspace:*",
     "@deepseek-ai/dsh-client-ui-file-drag": "workspace:*",
     "@deepseek-ai/dsh-client-ui-context-menu": "workspace:*",
