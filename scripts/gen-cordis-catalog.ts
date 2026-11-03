@@ -123,7 +123,6 @@ export const SERVICE_PAGE: Record<string, string> = {
   forgePanel: 'forge.md',
   forgeSession: 'forge.md',
   sessionController: 'session.md',
-  mobileController: 'web-client.md',
   sessionSkillCatalog: 'skills.md',
   sessions: 'session.md',
   sessionLogDeepSeek: 'session.md',

@@ -2116,32 +2116,6 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
-    key: 'mobileController',
-    summary: 'Authenticated operator controls for enrollment and manual device revocation.',
-    description: 'Authenticated operator controls for enrollment and manual device revocation.',
-    methods: [
-      {
-        signature: '@Remote status(target?: MobilePairingTarget): MobileDesktopState',
-        description: 'Read enrollment and connection state for the authenticated operator.',
-        parameters: [{ name: 'target', description: 'independent device slot; omission reads browser or its legacy Session grant.' }],
-        returns: 'state with transient QR material only while enrollment is pending; never log it.',
-      },
-      {
-        signature: '@Remote start(request: MobileStartRequest): Promise<MobileStartResult>',
-        description: 'Authorize one independent full-instance device, or a legacy browser Session grant when browser trust is absent.',
-        parameters: [{ name: 'request', description: 'instance consent with optional target (defaults to browser), or legacy Session selection with tool acknowledgement.' }],
-        returns: 'a short-lived QR URL; keep it only in the desktop\'s transient view state.',
-        throws: ['when disabled, already starting, revoked state is uncertain, or the selected Session cannot be used.'],
-      },
-      {
-        signature: '@Remote async stop(target?: MobilePairingTarget): Promise<MobileDesktopState>',
-        description: 'Stop admission for one device slot, then revoke only its relay room.',
-        parameters: [{ name: 'target', description: 'independent device slot; omission stops browser or its legacy Session grant, never App.' }],
-        returns: 'state distinguishing confirmed server revocation from an unknown network outcome.',
-      },
-    ],
-  },
-  {
     key: 'officeToPdf',
     summary: 'A provider lifetime owns all converters, queued calls, and temporary files.',
     description: 'A provider lifetime owns all converters, queued calls, and temporary files.',
@@ -7266,26 +7240,6 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'MessageSourceMap',
     declaration: 'export interface MessageSourceMap {\n    user: {\n        kind: \'user\';\n    };\n    model: ModelMessageSource;\n    tool: ToolMessageSource;\n    \'system-prompt\': SystemPromptMessageSource;\n}',
-  },
-  {
-    name: 'MobileDesktopState',
-    declaration: 'export interface MobileDesktopState {\n    readonly scope?: \'instance\';\n    readonly mobileOnline?: boolean;\n    readonly phase: \'disabled\' | \'stopped\' | \'starting\' | \'waiting\' | \'paired\' | \'reconnecting\' | \'expired\' | \'failed\';\n    readonly sessionId: SessionId | null;\n    readonly title: string;\n    readonly expiresAt: number | null;\n    readonly ticketExpiresAt: number | null;\n    readonly relayRevoked: boolean;\n    readonly pairingUrl?: string | undefined;\n}',
-  },
-  {
-    name: 'MobilePairingTarget',
-    declaration: 'export type MobilePairingTarget = \'browser\' | \'app\';',
-  },
-  {
-    name: 'MobileSessionStartRequest',
-    declaration: 'export interface MobileSessionStartRequest {\n    readonly sessionId: SessionId;\n    readonly acknowledgeTools: true;\n    readonly allowWorkspaceRoaming?: boolean;\n}',
-  },
-  {
-    name: 'MobileStartRequest',
-    declaration: 'export type MobileStartRequest = MobileSessionStartRequest | {\n    readonly scope: \'instance\';\n    readonly acknowledgeTools: true;\n    readonly target?: MobilePairingTarget;\n};',
-  },
-  {
-    name: 'MobileStartResult',
-    declaration: 'export interface MobileStartResult {\n    readonly pairingUrl: string;\n    readonly state: MobileDesktopState;\n}',
   },
   {
     name: 'ModDefinition',

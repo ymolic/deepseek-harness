@@ -12,7 +12,7 @@ A phone needs to exchange text with an explicitly selected desktop Session acros
 
 ## Decision
 
-The legacy [mobile controller](../../../../packages/api/mobile-controller/README.md) owns a short-lived text grant. Its bounded message projection and durable admission use the existing Agent and permission services. The compatibility client also supports workspace roaming and structured model, permission and interaction controls; those extensions are not the original Session-only security guarantee. New enrollments use the full client's explicit instance consent instead of inferring broad authority from a Session selection.
+The legacy mobile controller (externalized to `dsh-home-remote-control`) owns a short-lived text grant. Its bounded message projection and durable admission use the existing Agent and permission services. The compatibility client also supports workspace roaming and structured model, permission and interaction controls; those extensions are not the original Session-only security guarantee. New enrollments use the full client's explicit instance consent instead of inferring broad authority from a Session selection.
 
 An independent provisioned desktop credential creates relay rooms. A single-use QR fragment carries ephemeral pairing material and an encryption secret; the relay never receives the secret. Direction-specific HKDF keys and authenticated AES-GCM envelopes keep passive relay operators from reading conversation payloads. The page distributor and endpoints remain trusted, so this does not claim protection from a relay operator replacing the served JavaScript.
 

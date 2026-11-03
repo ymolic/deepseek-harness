@@ -23,13 +23,9 @@ Web Client 是由独立加载插件组装而成的浏览器侧 Cordis 应用。�
 
 Host 把组合后的 `WebBootGraph` 写入 `window.__DSH_BOOT__`，并在 parser-preloaded script 执行前安装浏览器 module-loader facade。模块系统是一张 lazy CommonJS 表：加载 bundle 只注册 factory；materialize entry 时才以同步 `require` 运行 factory，并解析 platform module 和已声明的动态依赖。
 
-Web boot kernel 创建模块系统、预取 `immediately` entry、挂载 vendored Cordis Loader，再创建图中的每个 entry。Cordis service injection 决定激活顺序；module graph 顺序只决定同步 import 能否被 materialize。完整 roster 到达 settled 状态后，`ui-renderer` hydrate 不依赖框架的 boot DOM，并调用唯一一次 context 级 `renderSlot('root')`。[Client Modules](client-modules.zh.md)负责 graph、bundle route、cache revision 与 loader 细节。
+Web boot kernel 创建模块系统、预取 `immediately` entry、挂载 vendored Cordis Loader，再创建图中的每个 entry。Cordis service injection 决定激活顺序；module graph 顺序只决定同步 import 能否被 materialize。完整 roster 到达 settled 状态且启动审计通过后（浏览器必需名单中的 entry 未激活会拒绝启动；其他未激活 entry 输出一条控制台警告），`ui-renderer` hydrate 不依赖框架的 boot DOM，并调用唯一一次 context 级 `renderSlot('root')`。[Client Modules](client-modules.zh.md)负责 graph、bundle route、cache revision 与 loader 细节。
 
 ## Remote 通信
-
-[手机远控](../../packages/api/mobile-controller/README.zh.md)在明确的整实例授权后，通过加密出站通道连接现有 Web 客户端。Host 分发已注册的应用 API、Gateway 流和资源，而非任意网络目的地；Session 执行权限保持不变。[Web 与 Desktop 菜单](../../packages/client/ui-mobile-remote/README.zh.md)负责临时二维码展示，并区分关闭弹窗与忘记受信任设备。有界的 Session 文本执行器仅保留兼容用途。
-
-`MobilePairingTarget` 为 `'browser' | 'app'`。`MobileStartRequest` 携带明确的整实例授权及可选 `target`，或旧版浏览器 Session 选择。省略 `target` 时保留浏览器行为；未知 target 一律拒绝。`mobile.status(target?)` 和 `mobile.stop(target?)` 仅选择该授权槽。每端拥有独立的持久信任与传输，因此两端可同时在线而不替换彼此。`MobileStartResult` 返回临时配对材料及 `MobileDesktopState`；等待扫码时，桌面状态也可能含二维码 URL，不得记录日志。配对后状态报告连接可用性与中继撤销结果，不再暴露二维码。[类型声明](../../packages/api/mobile-controller/src/types.ts)维护这些字段。
 
 Host 业务 service 使用 Typert Remote decorator 标记可调用 method。Host generation 产出严格 descriptor、runtime codec、declaration merge 与 source map。Client 侧 `api-remotes` assembly 选择这些生成贡献，并把具体 method 挂到 `ctx.remote.<namespace>` 与 Session scope 的 `agentCtx.remote.<namespace>`。功能包依赖生成的 service face，而不依赖 Gateway 实现或 Host 包的运行时 entry。
 
@@ -102,44 +98,3 @@ Web 和桌面端共享[代码工作工具偏好](../../packages/client/ui-settin
 - [API Gateway](../api-gateway.zh.md)：Host method、生成的 Remote contribution、stream 与 forwarded event。
 - [Web Client Slots](slots.zh.md)：component、hook、store、injection 与 placement。
 - [Conversation](conversation.zh.md)：持久 event correlation、target snapshot，以及 Chat 或 Trajectory view contribution。
-
-<!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
-
-<a id="cordis-surface"></a>
-
-## Cordis API
-
-Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — the language sides differ only in locale-specific paired document paths. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.zh.md#dispatch-modes), and the framework-inherited `ctx` API lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
-
-<a id="ctxmobilecontroller--mobilecontroller"></a>
-
-### `ctx.mobileController` — `MobileController`
-
-Authenticated operator controls for enrollment and manual device revocation.
-
-```ts cordis-catalog
-/**
- * Read enrollment and connection state for the authenticated operator.
- * @param target - independent device slot; omission reads browser or its legacy Session grant.
- * @returns state with transient QR material only while enrollment is pending; never log it.
- */
-@Remote status(target?: MobilePairingTarget): MobileDesktopState
-
-/**
- * Authorize one independent full-instance device, or a legacy browser Session grant when browser trust is absent.
- * @param request - instance consent with optional target (defaults to browser), or legacy Session selection with tool acknowledgement.
- * @returns a short-lived QR URL; keep it only in the desktop's transient view state.
- * @throws when disabled, already starting, revoked state is uncertain, or the selected Session cannot be used.
- */
-@Remote start(request: MobileStartRequest): Promise<MobileStartResult>
-
-/**
- * Stop admission for one device slot, then revoke only its relay room.
- * @param target - independent device slot; omission stops browser or its legacy Session grant, never App.
- * @returns state distinguishing confirmed server revocation from an unknown network outcome.
- */
-@Remote async stop(target?: MobilePairingTarget): Promise<MobileDesktopState>
-```
-
-Source: [`packages/api/mobile-controller/src/index.ts`](../../packages/api/mobile-controller/src/index.ts)
-<!-- END GENERATED cordis-surface -->
