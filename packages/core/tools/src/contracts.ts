@@ -123,6 +123,26 @@ export interface ToolRegistrationOptions {
   readonly when?: (context: ToolActivationContext) => boolean | Promise<boolean>
 }
 
+/** Lifecycle-owned step condition applied to matching visible registrations. */
+export interface ToolActivationFilter {
+  /**
+   * Select tools governed by this filter, including scope-owned registrations.
+   * This classifier must be pure and synchronous; failures reject admission.
+   * @param definition - visible tool after scoped shadowing and restrictions.
+   * @returns whether this filter's condition is required for the tool.
+   */
+  matches(definition: ToolDefinition): boolean
+  /**
+   * Admit one matching tool for the step, conjunctively with other conditions.
+   * False excludes it; rejection fails preparation as `TOOL_ACTIVATION_FAILED`.
+   * Observe cancellation; do not change registrations or perform tool work.
+   * @param context - preparing agent, captured model selection, and cancellation.
+   * @param definition - matching tool whose admission is being resolved.
+   * @returns whether the matching tool participates in the step.
+   */
+  when(context: ToolActivationContext, definition: ToolDefinition): boolean | Promise<boolean>
+}
+
 /** One step's admitted registrations, also used by nested PTC calls. */
 export interface ResolvedToolSet {
   /** Close admission after the step's tool batch settles. */
@@ -130,7 +150,9 @@ export interface ResolvedToolSet {
   /**
    * Read admitted registrations that remain visible in their original scope.
    * @param scope - exact requesting agent; another scope is never admitted.
-   * @returns original definitions excluding removed or restricted registrations.
+   * @returns original definitions excluding removed or restricted registrations
+   * and tools whose matching filter registrations changed. A failing classifier
+   * throws `ToolActivationError`; no activation condition is re-evaluated.
    */
   view(scope: ScopeKey | undefined): ReadonlyMap<string, ToolDefinition>
 }

@@ -207,6 +207,30 @@ interface ToolRegistrationOptions {
 }
 ```
 
+`ctx.tools.activationFilter({ matches, when })` adds a lifecycle-owned condition to tools registered by any plugin. The pure synchronous `matches(definition)` selects visible tools, including the requesting scope's own registrations; `when(context, definition)` decides each matching tool's admission. Global, ancestor-scope, and own-scope filters intersect with each other and with `register(..., { when })`. Disposing a filter removes it from future resolutions; matching filter registration additions, removals, or replacements invalidate existing admissions, while unrelated filters do not. Without a step set, `executable()` denies matching tools without evaluating `when`. Classifier or condition failures fail preparation as `TOOL_ACTIVATION_FAILED`; cancellation remains cancellation.
+
+```ts type-equiv
+/** Lifecycle-owned step condition applied to matching visible registrations. */
+interface ToolActivationFilter {
+  /**
+   * Select tools governed by this filter, including scope-owned registrations.
+   * This classifier must be pure and synchronous; failures reject admission.
+   * @param definition - visible tool after scoped shadowing and restrictions.
+   * @returns whether this filter's condition is required for the tool.
+   */
+  matches(definition: ToolDefinition): boolean
+  /**
+   * Admit one matching tool for the step, conjunctively with other conditions.
+   * False excludes it; rejection fails preparation as `TOOL_ACTIVATION_FAILED`.
+   * Observe cancellation; do not change registrations or perform tool work.
+   * @param context - preparing agent, captured model selection, and cancellation.
+   * @param definition - matching tool whose admission is being resolved.
+   * @returns whether the matching tool participates in the step.
+   */
+  when(context: ToolActivationContext, definition: ToolDefinition): boolean | Promise<boolean>
+}
+```
+
 ```ts type-equiv
 /** One step's admitted registrations, also used by nested PTC calls. */
 interface ResolvedToolSet {
@@ -215,7 +239,9 @@ interface ResolvedToolSet {
   /**
    * Read admitted registrations that remain visible in their original scope.
    * @param scope - exact requesting agent; another scope is never admitted.
-   * @returns original definitions excluding removed or restricted registrations.
+   * @returns original definitions excluding removed or restricted registrations
+   * and tools whose matching filter registrations changed. A failing classifier
+   * throws `ToolActivationError`; no activation condition is re-evaluated.
    */
   view(scope: ScopeKey | undefined): ReadonlyMap<string, ToolDefinition>
 }
@@ -673,13 +699,24 @@ get(name: string, scope?: ScopeKey, toolSet?: ResolvedToolSet): ToolDefinition |
 
 /**
  * Resolve the definition a call may execute. With a step's admitted set, the
- * set decides; without one, conditional registrations are unavailable.
+ * set decides; without one, conditional or filter-matched tools are unavailable.
+ * Classifier failures throw `ToolActivationError` without executing a tool.
  * @param name - the tool name as registered.
  * @param scope - the calling agent; omitted = the global view.
  * @param toolSet - step admission, or omitted for a call outside a model step.
  * @returns the executable definition, or undefined when the call must fail as `UNKNOWN_TOOL`.
  */
 executable(name: string, scope?: ScopeKey, toolSet?: ResolvedToolSet): ToolDefinition | undefined
+
+/**
+ * Register a step-time condition for matching tools in this scope and descendants.
+ * Global and scoped filters intersect, including for scope-owned registrations.
+ * Resolved steps freeze outcomes but lose admission if matching filter
+ * registrations change; unrelated filters do not invalidate admission.
+ * @param filter - pure tool classifier and cancellable activation condition.
+ * @returns the effect disposer that removes the filter from future resolutions.
+ */
+activationFilter(filter: ToolActivationFilter): () => void
 
 /**
  * Resolve conditions once for this step without changing shared registrations.

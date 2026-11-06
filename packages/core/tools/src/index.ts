@@ -12,7 +12,7 @@ import { assertSupportedJsonSchema } from './json-schema.ts'
 import { RUN_CODE_NAME, ToolActivationError } from './contracts.ts'
 import type {
   ToolDefinition, ToolRestriction, ToolExecution, ToolGuard,
-  ResolvedToolSet, ToolActivationContext, ToolRegistrationOptions,
+  ResolvedToolSet, ToolActivationContext, ToolActivationFilter, ToolRegistrationOptions,
 } from './contracts.ts'
 
 declare module '@deepseek-ai/dsh-system-prompt' {
@@ -95,6 +95,15 @@ class GuardLayer {
   isEmpty(): boolean { return this.guards.isEmpty() }
 }
 
+interface ActivationFilterRegistration {
+  readonly filter: ToolActivationFilter
+}
+
+class ActivationFilterLayer {
+  readonly filters = new AnonymousEntries<ActivationFilterRegistration>()
+  isEmpty(): boolean { return this.filters.isEmpty() }
+}
+
 /** Concrete tool registry and scoped executor dispatcher. */
 export class ToolsService extends Service {
   static inject = ['systemPrompt']
@@ -107,6 +116,7 @@ export class ToolsService extends Service {
   private readonly scoped = new WeakMap<ScopeKey, Registration>()
   private root: Registration | undefined
   private readonly guards = new ScopedLayers(() => new GuardLayer(), () => {})
+  private readonly activationFilters = new ScopedLayers(() => new ActivationFilterLayer(), () => {})
 
   constructor(ctx: Context) {
     super(ctx, 'tools')
@@ -242,7 +252,8 @@ export class ToolsService extends Service {
 
   /**
    * Resolve the definition a call may execute. With a step's admitted set, the
-   * set decides; without one, conditional registrations are unavailable.
+   * set decides; without one, conditional or filter-matched tools are unavailable.
+   * Classifier failures throw `ToolActivationError` without executing a tool.
    * @param name - the tool name as registered.
    * @param scope - the calling agent; omitted = the global view.
    * @param toolSet - step admission, or omitted for a call outside a model step.
@@ -251,7 +262,31 @@ export class ToolsService extends Service {
   executable(name: string, scope?: ScopeKey, toolSet?: ResolvedToolSet): ToolDefinition | undefined {
     if (toolSet !== undefined) return toolSet.view(scope).get(name)
     const view = this.view(scope)
-    return view.registrations.get(name)?.when === undefined ? view.visible.get(name) : undefined
+    const definition = view.visible.get(name)
+    if (definition === undefined || view.registrations.get(name)?.when !== undefined) return undefined
+    try {
+      return this.filters(scope).some(({ filter }) => filter.matches(definition)) ? undefined : definition
+    } catch (cause: unknown) {
+      throw new ToolActivationError(name, cause)
+    }
+  }
+
+  /**
+   * Register a step-time condition for matching tools in this scope and descendants.
+   * Global and scoped filters intersect, including for scope-owned registrations.
+   * Resolved steps freeze outcomes but lose admission if matching filter
+   * registrations change; unrelated filters do not invalidate admission.
+   * @param filter - pure tool classifier and cancellable activation condition.
+   * @returns the effect disposer that removes the filter from future resolutions.
+   */
+  activationFilter(filter: ToolActivationFilter): () => void {
+    return this.activationFilters.effect(this.ctx, layer => layer.filters.append({ filter }), { label: 'tools.activationFilter()' })
+  }
+
+  /** Snapshot global, inherited, and own-scope activation filter registrations. */
+  private filters(scope?: ScopeKey): ActivationFilterRegistration[] {
+    return [this.activationFilters.global, ...this.activationFilters.chainLayers(scope)]
+      .flatMap(layer => [...layer.filters.values()])
   }
 
   /**
@@ -265,18 +300,27 @@ export class ToolsService extends Service {
     const { agent, signal } = context
     signal.throwIfAborted()
     const view = this.view(agent)
-    const admitted = new Map<string, ToolDefinition>()
+    const filters = this.filters(agent)
+    const admitted = new Map<string, { definition: ToolDefinition; filters: readonly ActivationFilterRegistration[] }>()
     for (const [name, definition] of view.visible) {
       const registration = view.registrations.get(name)
       let enabled: boolean
+      let matching: ActivationFilterRegistration[]
       try {
         enabled = registration?.when === undefined || await registration.when(context)
+        signal.throwIfAborted()
+        matching = filters.filter(({ filter }) => filter.matches(definition))
+        for (const { filter } of matching) {
+          if (!enabled) break
+          enabled = await filter.when(context, definition)
+          signal.throwIfAborted()
+        }
       } catch (cause: unknown) {
         signal.throwIfAborted()
         throw new ToolActivationError(name, cause)
       }
       signal.throwIfAborted()
-      if (enabled) admitted.set(name, definition)
+      if (enabled) admitted.set(name, { definition, filters: matching })
     }
     let closed = false
     return Object.freeze({
@@ -285,11 +329,18 @@ export class ToolsService extends Service {
         const visible = new Map<string, ToolDefinition>()
         if (closed || scope !== agent) return visible
         const current = this.view(agent)
-        for (const [name, definition] of admitted) {
-          if (current.visible.get(name) === definition
-            && current.registrations.get(name) === view.registrations.get(name)) {
-            visible.set(name, definition)
+        const currentFilters = this.filters(agent)
+        for (const [name, { definition, filters: original }] of admitted) {
+          if (current.visible.get(name) !== definition
+            || current.registrations.get(name) !== view.registrations.get(name)) continue
+          let matching: ActivationFilterRegistration[]
+          try {
+            matching = currentFilters.filter(({ filter }) => filter.matches(definition))
+          } catch (cause: unknown) {
+            throw new ToolActivationError(name, cause)
           }
+          if (matching.length === original.length
+            && matching.every((filter, index) => filter === original[index])) visible.set(name, definition)
         }
         return visible
       },

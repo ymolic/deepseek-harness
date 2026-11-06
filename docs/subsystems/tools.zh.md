@@ -207,6 +207,30 @@ interface ToolRegistrationOptions {
 }
 ```
 
+`ctx.tools.activationFilter({ matches, when })` 为任意插件注册的工具增加生命周期持有的条件。纯同步的 `matches(definition)` 选择可见工具，包括请求作用域自身的注册；`when(context, definition)` 决定每个匹配工具是否准入。全局、祖先作用域与本作用域过滤器彼此取交集，并与 `register(..., { when })` 取交集。释放过滤器会将其从后续解析移除；匹配过滤器的注册新增、移除或替换会使既有准入失效，无关过滤器不会。没有步骤集合时，`executable()` 不评估 `when`，直接拒绝匹配工具。分类器或条件失败以 `TOOL_ACTIVATION_FAILED` 让步骤准备失败；取消仍按取消处理。
+
+```ts type-equiv
+/** Lifecycle-owned step condition applied to matching visible registrations. */
+interface ToolActivationFilter {
+  /**
+   * Select tools governed by this filter, including scope-owned registrations.
+   * This classifier must be pure and synchronous; failures reject admission.
+   * @param definition - visible tool after scoped shadowing and restrictions.
+   * @returns whether this filter's condition is required for the tool.
+   */
+  matches(definition: ToolDefinition): boolean
+  /**
+   * Admit one matching tool for the step, conjunctively with other conditions.
+   * False excludes it; rejection fails preparation as `TOOL_ACTIVATION_FAILED`.
+   * Observe cancellation; do not change registrations or perform tool work.
+   * @param context - preparing agent, captured model selection, and cancellation.
+   * @param definition - matching tool whose admission is being resolved.
+   * @returns whether the matching tool participates in the step.
+   */
+  when(context: ToolActivationContext, definition: ToolDefinition): boolean | Promise<boolean>
+}
+```
+
 ```ts type-equiv
 /** One step's admitted registrations, also used by nested PTC calls. */
 interface ResolvedToolSet {
@@ -215,7 +239,9 @@ interface ResolvedToolSet {
   /**
    * Read admitted registrations that remain visible in their original scope.
    * @param scope - exact requesting agent; another scope is never admitted.
-   * @returns original definitions excluding removed or restricted registrations.
+   * @returns original definitions excluding removed or restricted registrations
+   * and tools whose matching filter registrations changed. A failing classifier
+   * throws `ToolActivationError`; no activation condition is re-evaluated.
    */
   view(scope: ScopeKey | undefined): ReadonlyMap<string, ToolDefinition>
 }
@@ -673,13 +699,24 @@ get(name: string, scope?: ScopeKey, toolSet?: ResolvedToolSet): ToolDefinition |
 
 /**
  * Resolve the definition a call may execute. With a step's admitted set, the
- * set decides; without one, conditional registrations are unavailable.
+ * set decides; without one, conditional or filter-matched tools are unavailable.
+ * Classifier failures throw `ToolActivationError` without executing a tool.
  * @param name - the tool name as registered.
  * @param scope - the calling agent; omitted = the global view.
  * @param toolSet - step admission, or omitted for a call outside a model step.
  * @returns the executable definition, or undefined when the call must fail as `UNKNOWN_TOOL`.
  */
 executable(name: string, scope?: ScopeKey, toolSet?: ResolvedToolSet): ToolDefinition | undefined
+
+/**
+ * Register a step-time condition for matching tools in this scope and descendants.
+ * Global and scoped filters intersect, including for scope-owned registrations.
+ * Resolved steps freeze outcomes but lose admission if matching filter
+ * registrations change; unrelated filters do not invalidate admission.
+ * @param filter - pure tool classifier and cancellable activation condition.
+ * @returns the effect disposer that removes the filter from future resolutions.
+ */
+activationFilter(filter: ToolActivationFilter): () => void
 
 /**
  * Resolve conditions once for this step without changing shared registrations.
