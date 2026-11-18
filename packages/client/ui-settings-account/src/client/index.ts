@@ -4,6 +4,7 @@ import type { AccountKey } from './locales.ts'
 export type { AccountSectionInjected, AccountSectionProps, AccountSnapshot } from './AccountSection.tsx'
 export type { AccountMenuProps } from './AccountMenu.tsx'
 export type { AccountKey } from './locales.ts'
+export type { AccountUi, AccountUiState, AccountNotificationsOwnerProps } from './account-ui.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap { 'settings.account': AccountKey }

@@ -17,7 +17,6 @@ import { preparationFingerprint, prepareCachedDirectories } from './preparation-
 export async function prepareDevelopmentRuntime(options: PreparePrimaryRuntimeOptions): Promise<void> {
   const require = createRequire(import.meta.url)
   const pnpm = dirname(require.resolve('pnpm'))
-  const skills = options.skillSource ?? join(dirname(require.resolve('@deepseek-ai/dsh-skill-office/package.json')), 'assets')
   const inputs = [
     fileURLToPath(import.meta.url),
     fileURLToPath(new URL('./prepare-primary-runtime.ts', import.meta.url)),
@@ -28,16 +27,16 @@ export async function prepareDevelopmentRuntime(options: PreparePrimaryRuntimeOp
     fileURLToPath(new URL('../../../scripts/primary-runtime/prune-python-tests.ts', import.meta.url)),
     fileURLToPath(new URL('../../../scripts/primary-runtime/smoke.py', import.meta.url)),
     fileURLToPath(new URL('../../../packages/skill/tool-workspace-dependencies/src/index.ts', import.meta.url)),
-    pnpm, skills,
+    pnpm,
   ]
-  await prepareCachedDirectories({ root: options.output, directories: ['primary-runtime', 'office-skills'],
+  await prepareCachedDirectories({ root: options.output, directories: ['primary-runtime'],
     record: '.development-preparation.json',
     identity: () => createHash('sha256').update(JSON.stringify({ target: options.target, version: options.version,
       pnpmArchive: options.pnpmArchive, pythonOnly: options.pythonOnly, inputs: preparationFingerprint(inputs, true),
       platform: process.platform, arch: process.arch,
     })).digest('hex'),
     prepare: async (staging) => {
-      await preparePrimaryRuntime({ ...options, output: staging, skillSource: skills })
+      await preparePrimaryRuntime({ ...options, output: staging })
       smokePrimaryRuntime(join(staging, 'primary-runtime'))
     },
   })

@@ -33,7 +33,6 @@ it.skipIf(!existsSync(join(repository, 'apps/desktop-host/lib/index.js')))(
       expect(statSync(join(project, 'desktop-runtime.json')).birthtimeMs).toBe(before)
 
       const runtime = join(root, 'runtime')
-      cpSync(join(repository, 'packages/skill/skill-office/assets'), join(runtime, 'office-skills'), { recursive: true })
       const nodeBin = join(runtime, 'primary-runtime/dependencies/node/bin')
       mkdirSync(nodeBin, { recursive: true })
       cpSync(process.execPath, join(nodeBin, process.platform === 'win32' ? 'node.exe' : 'node'))
